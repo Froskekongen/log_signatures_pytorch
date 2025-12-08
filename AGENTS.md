@@ -11,7 +11,7 @@ Core kernels live in `src/log_signatures_pytorch/`, where `signature.py` and `lo
 - `uv run python main.py` — quick smoke test that the CLI entry runs.
 
 ## Coding Style & Naming Conventions
-Write Python 3.13-compatible code with 4-space indentation, type hints, and docstrings describing tensor shapes. Favor pure functions that operate on `torch.Tensor` batches, and keep public names snake_case (`log_signature`, `hall_basis`). Internal helper tensors should read `*_tensor` or `*_mat` to mirror existing patterns. Use Torch ops over NumPy to stay on GPU, and prefer vectorized expressions inside `tensor_ops` rather than Python loops.
+Write Python 3.13-compatible code with 4-space indentation, type hints, and docstrings describing tensor shapes. Favor pure functions that operate on `torch.Tensor` batches, and keep public names snake_case (`log_signature`, `hall_basis`). Internal helper tensors should read `*_tensor` or `*_mat` to mirror existing patterns. Use Torch ops over NumPy to stay on GPU, and prefer vectorized expressions inside `tensor_ops` rather than Python loops. Add numpy docstrings to new function and classes.
 
 ## Testing Guidelines
 All new functionality needs at least one deterministic unit test in `tests/`, mirroring existing `test_*` files. Tests should name the mathematical property they enforce (`test_signature_invariance_under_translation`). Use pytest parametrization for width/depth sweeps instead of manual loops. When adding low-level kernels, compare against the reference `mathematical_verification` helpers and ensure `pytest --maxfail=1 --disable-warnings` passes locally before pushing.
