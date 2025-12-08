@@ -120,7 +120,7 @@ The documentation will be available at `http://127.0.0.1:8000` when serving loca
 - esig: https://github.com/datasig-ac-uk/esig
 - signatory: https://github.com/patrick-kidger/signatory
 - keras-sig: https://github.com/remigenet/keras_sig
-- Hall basis: "On the bases of free Lie algebras" — M. Hall (1950)
+- Hall basis: "On the bases of free Lie algebras". M. Hall (1950)
 
 ## License
 
@@ -129,7 +129,7 @@ MIT
 
 ## Citation
 
-If you use this software in your research, please cite it as follows:
+If you use this software in your research or in your project, please cite it as follows:
 
 ### BibTeX
 
@@ -137,7 +137,7 @@ If you use this software in your research, please cite it as follows:
 @software{log_signatures_pytorch,
   author = {Aune, Erlend},
   title = {log-signatures-pytorch: Differentiable log-signature and signature kernels in PyTorch},
-  version = {0.1.1},
+  version = {0.1.0},
   url = {https://github.com/hance-engine/log_signatures_pytorch},
   year = {2025},
   license = {MIT}
@@ -146,4 +146,4 @@ If you use this software in your research, please cite it as follows:
 
 ### Plain text
 
-Aune, Erlend. (2025). log-signatures-pytorch: Differentiable log-signature and signature kernels in PyTorch (Version 0.1.1) [Computer software]. https://github.com/hance-engine/log_signatures_pytorch
+Aune, Erlend. (2025). log-signatures-pytorch: Differentiable log-signature and signature kernels in PyTorch (Version 0.1.0). [Computer software]: https://github.com/hance-engine/log_signatures_pytorch
