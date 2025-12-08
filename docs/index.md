@@ -6,7 +6,10 @@ Differentiable log-signature and signature kernels implemented in PyTorch with b
 
 - Batched signature and log-signature computation for tensors shaped `(batch, length, dim)` with optional streaming outputs at every step. For a single path, add a leading dimension via `unsqueeze(0)`.
 - Hall-basis utilities (`hall_basis`, `logsigdim`, `logsigkeys`) for inspecting dimensions and basis labels.
-- Two log-signature backends: the default signature→log path, and an incremental sparse BCH implementation for depths up to 4 (falls back otherwise).
+- Two log-signature coordinate systems:
+  - `mode="hall"` (default): classic Hall basis with dense projection.
+  - `mode="words"`: Signatory-style Lyndon words basis using a gather-only projection for faster CPU/GPU throughput.
+- Two computation backends: the default signature→log path, and an incremental sparse BCH implementation for depths up to 4 (falls back otherwise).
 - The implementation of signatures is structured after keras_sig, but only focuses on pytorch.
 - Dependencies are kept minimal.
 
@@ -26,6 +29,10 @@ print(sig.shape)           # torch.Size([1, 6]) = sum(width**k for k in 1..depth
 log_sig = log_signature(path, depth=2)
 print(log_sig.shape)       # torch.Size([1, 3]) = logsigdim(2, 2)
 print("logsigdim:", logsigdim(2, 2))  # 3
+
+# Lyndon (words) coordinates for comparison
+log_sig_words = log_signature(path, depth=2, mode="words")
+print(log_sig_words.shape)  # torch.Size([1, 3])
 ```
 
 ### Batched computation and streaming outputs
@@ -57,6 +64,12 @@ print(basis)          # [1, 2, (1, 2)]
 
 keys = logsigkeys(width=2, depth=2)
 print(keys)           # ['1', '2', '[1,2]'] (matches esig format)
+
+# Lyndon words (Signatory ordering)
+from log_signatures_pytorch import lyndon_words, logsigkeys_words
+words = lyndon_words(width=2, depth=3)
+print(words)          # [(1,), (2,), (1, 2), (1, 1, 2), (1, 2, 2)]
+print(logsigkeys_words(width=2, depth=3))
 ```
 
 ## Installation
@@ -68,12 +81,26 @@ To install from pypi using pip, run:
 pip install log-signatures-pytorch
 ```
 
+## Testing Hall vs Words modes
+
+- Deterministic unit tests (both bases):  
+  `uv run pytest tests/test_log_signature.py -k "words or hall"`
+- Mathematical verification suite for both bases (free Lie identities, log-exp consistency):  
+  `uv run pytest tests/test_mathematical_verification.py`
+- Microbenchmark comparison:  
+  `PYTHONPATH=src uv run python benchmarks/words_vs_hall.py --width 3 --depth 4 --batch 64 --length 100`
+
+Notes:
+- `mode="words"` is available on the default signature→log path; BCH streaming currently supports `mode="hall"`.
+- The verification tests reuse the same path examples and assert both modes satisfy the algebraic identities where applicable.
+
 ## References
 
 - esig: https://github.com/datasig-ac-uk/esig
 - signatory: https://github.com/patrick-kidger/signatory
 - keras-sig: https://github.com/remigenet/keras_sig
 - Hall basis: "On the bases of free Lie algebras" — M. Hall (1950)
+- Lyndon words mode: Signatory documentation “mode='words'” and original Lyndon/Chen–Fox–Lyndon constructions
 
 ## License
 

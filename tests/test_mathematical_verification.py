@@ -1,7 +1,13 @@
 import pytest
 import torch
 
-from log_signatures_pytorch.basis import hall_basis, logsigdim, logsigkeys
+from log_signatures_pytorch.basis import (
+    hall_basis,
+    logsigdim,
+    logsigdim_words,
+    logsigkeys,
+    logsigkeys_words,
+)
 from log_signatures_pytorch.log_signature import log_signature
 from log_signatures_pytorch.signature import signature
 from log_signatures_pytorch.tensor_ops import (
@@ -29,6 +35,16 @@ def test_logsigdim_matches_basis_and_keys(width: int, depth: int) -> None:
 
     assert dim == len(basis) == len(keys)
     assert len(set(keys)) == len(keys)
+
+
+@pytest.mark.parametrize("width,depth", [(2, 2), (3, 3), (3, 4)])
+def test_logsigdim_words_matches_hall(width: int, depth: int) -> None:
+    dim_hall = logsigdim(width, depth)
+    dim_words = logsigdim_words(width, depth)
+    assert dim_hall == dim_words
+    keys_words = logsigkeys_words(width, depth)
+    assert len(keys_words) == dim_words
+    assert len(set(keys_words)) == dim_words
 
 
 def test_hall_basis_is_depth_sorted_and_unique() -> None:
@@ -64,10 +80,17 @@ def test_batch_lie_bracket_matches_elementwise() -> None:
     torch.testing.assert_close(batch_result, expected, atol=1e-12, rtol=1e-12)
 
 
-@pytest.mark.parametrize("width,depth", [(2, 1), (2, 2), (3, 2), (3, 3)])
-def test_log_signature_zero_path_is_zero(width: int, depth: int) -> None:
+@pytest.mark.parametrize("width,depth,mode", [
+    (2, 1, "hall"),
+    (2, 2, "hall"),
+    (3, 2, "hall"),
+    (3, 3, "hall"),
+    (2, 2, "words"),
+    (3, 3, "words"),
+])
+def test_log_signature_zero_path_is_zero(width: int, depth: int, mode: str) -> None:
     path = torch.zeros(1, 5, width, dtype=torch.float64)
-    log_sig = log_signature(path, depth=depth)
+    log_sig = log_signature(path, depth=depth, mode=mode)
     torch.testing.assert_close(log_sig, torch.zeros_like(log_sig), atol=0, rtol=0)
 
 
@@ -84,6 +107,20 @@ def test_log_signature_single_segment_has_only_level1() -> None:
 
     expected = torch.zeros(1, expected_dim, dtype=log_sig.dtype)
     expected[0, 0:2] = displacement
+    torch.testing.assert_close(log_sig, expected, atol=1e-10, rtol=1e-10)
+
+
+def test_log_signature_single_segment_words_matches_level1() -> None:
+    displacement = torch.tensor([0.3, 0.4, -0.1], dtype=torch.float64)
+    path = torch.stack(
+        [torch.zeros_like(displacement), displacement], dim=0
+    ).unsqueeze(0)
+    depth = 3
+    log_sig = log_signature(path, depth=depth, mode="words")
+    expected_dim = logsigdim_words(3, depth)
+    assert log_sig.shape[-1] == expected_dim
+    expected = torch.zeros(1, expected_dim, dtype=log_sig.dtype)
+    expected[0, 0:3] = displacement
     torch.testing.assert_close(log_sig, expected, atol=1e-10, rtol=1e-10)
 
 

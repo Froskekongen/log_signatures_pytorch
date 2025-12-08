@@ -7,9 +7,90 @@ represent log-signatures in a compact form.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Dict, List, Tuple, Union
 
 BasisElement = Union[int, Tuple["BasisElement", "BasisElement"]]
+
+# WordsBasisElement represents a Lyndon word as a tuple of ints (1-based letters)
+WordsBasisElement = Tuple[int, ...]
+
+
+def _lyndon_fixed_length(width: int, length: int) -> List[WordsBasisElement]:
+    """Generate Lyndon words of exact ``length`` over an alphabet ``1..width``.
+
+    Parameters
+    ----------
+    width : int
+        Alphabet size (path dimension), must be >= 1.
+    length : int
+        Target word length, must be >= 1.
+
+    Returns
+    -------
+    list[tuple[int, ...]]
+        Lyndon words of the requested length, emitted in lexicographic order
+        using 1-based letters.
+
+    Notes
+    -----
+    Implements the classic Duval/FKM recursive construction in
+    O(number_of_words * length) time.
+    """
+    if length < 1:
+        return []
+    # Working array (1-based indexing for simplicity)
+    a: List[int] = [0] * (length + 1)
+    words: List[WordsBasisElement] = []
+
+    def generate(t: int, p: int):
+        if t > length:
+            if p == length:
+                # Convert to 1-based letters for external consistency
+                words.append(tuple(x + 1 for x in a[1 : length + 1]))
+            return
+        a[t] = a[t - p]
+        generate(t + 1, p)
+        for j in range(a[t - p] + 1, width):
+            a[t] = j
+            generate(t + 1, t)
+
+    generate(1, 1)
+    return words
+
+
+@lru_cache(maxsize=None)
+def lyndon_words(width: int, depth: int) -> Tuple[WordsBasisElement, ...]:
+    """Lyndon words up to ``depth`` in Signatory-compatible ordering.
+
+    Parameters
+    ----------
+    width : int
+        Alphabet size (path dimension), must be >= 1.
+    depth : int
+        Maximum word length to include, must be >= 1.
+
+    Returns
+    -------
+    tuple[tuple[int, ...], ...]
+        All Lyndon words of lengths 1..depth, ordered first by length then
+        lexicographically within each length. Letters are 1-based to align
+        with Hall basis conventions.
+
+    Raises
+    ------
+    ValueError
+        If ``width < 1`` or ``depth < 1``.
+    """
+    if width < 1:
+        raise ValueError("width must be >= 1")
+    if depth < 1:
+        raise ValueError("depth must be >= 1")
+
+    words: List[WordsBasisElement] = []
+    for length in range(1, depth + 1):
+        words.extend(_lyndon_fixed_length(width, length))
+    return tuple(words)
 
 
 def _basis_key(elem: BasisElement):
@@ -151,6 +232,24 @@ def logsigdim(width: int, depth: int) -> int:
     return len(hall_basis(width, depth))
 
 
+def logsigdim_words(width: int, depth: int) -> int:
+    """Dimension of the truncated log-signature in the Lyndon \"words\" basis.
+
+    Parameters
+    ----------
+    width : int
+        Alphabet size (path dimension), must be >= 1.
+    depth : int
+        Truncation depth, must be >= 1.
+
+    Returns
+    -------
+    int
+        Number of Lyndon words of lengths 1..depth (Witt formula).
+    """
+    return len(lyndon_words(width, depth))
+
+
 def logsigkeys(width: int, depth: int) -> List[str]:
     """Human-readable labels for Hall basis elements (esig-compatible).
 
@@ -202,3 +301,26 @@ def logsigkeys(width: int, depth: int) -> List[str]:
         return f"[{_to_str(left)},{_to_str(right)}]"
 
     return [_to_str(elem) for elem in hall_basis(width, depth)]
+
+
+def logsigkeys_words(width: int, depth: int) -> List[str]:
+    """Human-readable labels for the Lyndon \"words\" basis (Signatory style).
+
+    Parameters
+    ----------
+    width : int
+        Alphabet size (path dimension), must be >= 1.
+    depth : int
+        Maximum word length to include, must be >= 1.
+
+    Returns
+    -------
+    list[str]
+        Labels of the same length/order as :func:`lyndon_words`, where a word
+        like (1, 2, 1) is rendered as ``\"1,2,1\"``.
+    """
+
+    def _to_str(word: WordsBasisElement) -> str:
+        return ",".join(str(x) for x in word)
+
+    return [_to_str(word) for word in lyndon_words(width, depth)]

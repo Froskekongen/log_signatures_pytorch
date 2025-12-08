@@ -1,9 +1,14 @@
-"""Log-signature computation using Hall basis.
+"""Log-signature computation in Hall and Lyndon (\"words\") bases.
 
-This module provides functions to compute the log-signature of a path,
-which is a compressed representation of the signature using the Hall basis
-of the free Lie algebra. The log-signature has fewer components than the
-full signature while retaining the same information (up to truncation depth).
+This module provides functions to compute the log-signature of a path, with
+two coordinate systems:
+
+- Hall basis (default): traditional Hall set ordering.
+- Lyndon \"words\" basis: Signatory-style ordering where each coefficient is
+  the tensor-log coefficient of a Lyndon word; projection reduces to gathers.
+
+Both bases represent the same free Lie algebra element; a linear change of
+basis relates their coordinates.
 """
 
 from functools import lru_cache
@@ -12,6 +17,7 @@ from typing import Optional, Tuple
 import torch
 from torch import Tensor
 
+from .basis import lyndon_words, logsigdim, logsigdim_words
 from .hall_bch import HallBCH, supports_depth
 from .hall_projection import get_hall_projector
 from .signature import signature
@@ -27,6 +33,23 @@ def _compositions(total: int, parts: int) -> Tuple[Tuple[int, ...], ...]:
         for rest in _compositions(total - first, parts - 1):
             result.append((first, *rest))
     return tuple(result)
+
+
+def _word_tensor_index(word: Tuple[int, ...], width: int) -> int:
+    """Convert a Lyndon word to its flat tensor-algebra index (row-major)."""
+    idx = 0
+    for letter in word:
+        idx = idx * width + (letter - 1)
+    return idx
+
+
+@lru_cache(maxsize=None)
+def _words_indices(width: int, depth: int) -> Tuple[Tuple[int, ...], ...]:
+    """Cached tensor indices for Lyndon words grouped by length."""
+    grouped = [[] for _ in range(depth)]
+    for word in lyndon_words(width, depth):
+        grouped[len(word) - 1].append(_word_tensor_index(word, width))
+    return tuple(tuple(group) for group in grouped)
 
 
 def _signature_to_logsignature_tensor(
@@ -173,18 +196,71 @@ def _project_to_hall_basis(
     return projector.project(log_sig_tensors)
 
 
+def _project_to_words_basis(
+    log_sig_tensors: list[Tensor], width: int, depth: int
+) -> Tensor:
+    """Project log-signature tensors onto the Lyndon \"words\" basis.
+
+    Parameters
+    ----------
+    log_sig_tensors : list[Tensor]
+        List where entry ``k`` has shape ``(batch, width, ..., width)`` with
+        ``k+1`` trailing width axes, representing log-signature tensors in
+        tensor-algebra coordinates.
+    width : int
+        Path dimension (alphabet size).
+    depth : int
+        Truncation depth.
+
+    Returns
+    -------
+    Tensor
+        Tensor of shape ``(batch, logsigdim_words(width, depth))`` containing
+        log-signature coordinates in the Lyndon \"words\" basis.
+
+    Notes
+    -----
+    The Lyndon basis is triangular with respect to tensor-log coordinates, so
+    each Lyndon coefficient appears exactly once; the projection is a gather
+    rather than a dense matrix multiplication.
+    """
+    if not log_sig_tensors:
+        return torch.zeros(
+            0, device=torch.device("cpu"), dtype=torch.float32  # pragma: no cover
+        )
+
+    indices_by_depth = _words_indices(width, depth)
+    slices = []
+    for k, indices in enumerate(indices_by_depth, start=1):
+        if not indices:
+            continue
+        tensor = log_sig_tensors[k - 1].reshape(log_sig_tensors[k - 1].shape[0], -1)
+        gather_idx = torch.tensor(indices, device=tensor.device, dtype=torch.long)
+        slices.append(torch.index_select(tensor, dim=1, index=gather_idx))
+    if not slices:
+        # Should not happen for valid width/depth, but keep guard.
+        return torch.zeros(
+            log_sig_tensors[0].shape[0],
+            0,
+            device=log_sig_tensors[0].device,
+            dtype=log_sig_tensors[0].dtype,
+        )
+    return torch.cat(slices, dim=1)
+
+
 def _batch_log_signature(
     path: Tensor,
     depth: int,
     stream: bool = False,
     gpu_optimized: Optional[bool] = None,
     chunk_size: Optional[int] = None,
+    mode: str = "hall",
 ) -> Tensor:
-    """Computes log-signatures for batched paths using signature computation.
+    """Compute log-signatures via signature→log pipeline for batched paths.
 
-    This implementation computes the signature first, then extracts the log-signature
-    by inverting the exponential map and projecting onto the Hall basis. This is
-    the default method and works for any depth.
+    This implementation computes the truncated signature first, converts it to
+    a tensor-log via the formal logarithm series, and then projects to either
+    Hall or Lyndon (\"words\") coordinates.
 
     Parameters
     ----------
@@ -199,21 +275,26 @@ def _batch_log_signature(
         Default is None.
     chunk_size : int, optional
         Optional chunk size for CPU signature scan. Default is None.
+    mode : str, optional
+        Basis for the output coordinates: ``"hall"`` (default) or ``"words"``.
 
     Returns
     -------
     Tensor
-        If ``stream=False``: Tensor of shape ``(batch, logsigdim(dim, depth))``
-        containing the final log-signature for each path.
+        If ``stream=False``: Tensor of shape ``(batch, D)`` where
+        ``D = logsigdim`` for Hall or ``logsigdim_words`` for words mode.
 
-        If ``stream=True``: Tensor of shape ``(batch, length-1, logsigdim(dim, depth))``
-        containing log-signatures at each step.
+        If ``stream=True``: Tensor of shape ``(batch, length-1, D)`` with the
+        same ``D`` definition as above.
 
     Notes
     -----
     This is the default log-signature computation method. It works for any depth
     but may be slower than the BCH method for supported depths (depth <= 4).
     """
+    mode = (mode or "hall").lower()
+    if mode not in {"hall", "words"}:
+        raise ValueError(f"Unsupported mode '{mode}'. Use 'hall' or 'words'.")
     batch_size, seq_len, n_features = path.shape
 
     sig = signature(
@@ -224,17 +305,21 @@ def _batch_log_signature(
         chunk_size=chunk_size,
     )
 
+    projector = (
+        _project_to_hall_basis if mode == "hall" else _project_to_words_basis
+    )
+
     if not stream:
         sig_tensors = _unflatten_signature(sig, n_features, depth)
         log_sig_tensors = _signature_to_logsignature_tensor(
             sig_tensors, n_features, depth
         )
-        return _project_to_hall_basis(log_sig_tensors, n_features, depth)
+        return projector(log_sig_tensors, n_features, depth)
 
     flattened = sig.reshape(batch_size * (seq_len - 1), -1)
     sig_tensors = _unflatten_signature(flattened, n_features, depth)
     log_sig_tensors = _signature_to_logsignature_tensor(sig_tensors, n_features, depth)
-    log_sig = _project_to_hall_basis(log_sig_tensors, n_features, depth)
+    log_sig = projector(log_sig_tensors, n_features, depth)
     return log_sig.reshape(batch_size, seq_len - 1, -1)
 
 
@@ -320,12 +405,15 @@ def log_signature(
     gpu_optimized: Optional[bool] = None,
     chunk_size: Optional[int] = None,
     method: str = "default",
+    mode: str = "hall",
 ) -> Tensor:
     """Compute log-signatures for batched paths.
 
-    The log-signature is a compressed representation of the signature using the Hall basis
-    of the free Lie algebra. It has fewer components than the full signature while retaining
-    the same information (up to the truncation depth).
+    The log-signature is a compressed representation of the signature. Two bases are
+    supported:
+
+    - ``mode=\"hall\"`` (default): classic Hall basis
+    - ``mode=\"words\"``: Signatory-style Lyndon words basis (triangular/gather projection)
 
     Parameters
     ----------
@@ -349,21 +437,26 @@ def log_signature(
         (sparse Hall-BCH, supported for depth <= 4). For higher depths,
         "bch_sparse" falls back to the default path automatically.
         Default is "default".
+    mode : str, optional
+        Basis for the log-signature coordinates: "hall" (default) or "words"
+        (Lyndon words). "words" is only available with ``method=\"default\"``.
 
     Returns
     -------
     Tensor
-        If ``stream=False``: Tensor of shape ``(batch, logsigdim(dim, depth))``
-        containing the final log-signature for each path in the batch.
+        If ``stream=False``: Tensor of shape ``(batch, D)`` where
+        ``D = logsigdim(dim, depth)`` for ``mode=\"hall\"`` and
+        ``D = logsigdim_words(dim, depth)`` for ``mode=\"words\"``.
 
-        If ``stream=True``: Tensor of shape ``(batch, length-1, logsigdim(dim, depth))``
-        containing log-signatures at each step along each path.
+        If ``stream=True``: Tensor of shape ``(batch, length-1, D)`` with
+        the same ``D`` definition as above.
 
     Raises
     ------
     ValueError
-        If ``path`` is not three-dimensional, or if ``method`` is not
-        "default" or "bch_sparse".
+        If ``path`` is not three-dimensional, if ``method`` is not
+        "default" or "bch_sparse", or if an unsupported ``mode``/``method``
+        combination is requested.
 
     Examples
     --------
@@ -403,8 +496,15 @@ def log_signature(
             "Wrap a single path with path.unsqueeze(0)."
         )
         raise ValueError(msg)
+
+    mode = (mode or "hall").lower()
+    if mode not in {"hall", "words"}:
+        raise ValueError(f"Unsupported mode '{mode}'. Use 'hall' or 'words'.")
+
     method = (method or "default").lower()
     if method == "bch_sparse":
+        if mode != "hall":
+            raise ValueError("mode='words' is only supported with method='default'.")
         if not supports_depth(depth):
             log_sig = _batch_log_signature(
                 path,
@@ -412,6 +512,7 @@ def log_signature(
                 stream=stream,
                 gpu_optimized=gpu_optimized,
                 chunk_size=chunk_size,
+                mode=mode,
             )
         else:
             log_sig = _batch_log_signature_bch(
@@ -426,6 +527,7 @@ def log_signature(
             stream=stream,
             gpu_optimized=gpu_optimized,
             chunk_size=chunk_size,
+            mode=mode,
         )
     else:
         raise ValueError(
