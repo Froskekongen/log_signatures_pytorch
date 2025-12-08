@@ -1,0 +1,435 @@
+"""Log-signature computation using Hall basis.
+
+This module provides functions to compute the log-signature of a path,
+which is a compressed representation of the signature using the Hall basis
+of the free Lie algebra. The log-signature has fewer components than the
+full signature while retaining the same information (up to truncation depth).
+"""
+
+from functools import lru_cache
+from typing import Optional, Tuple
+
+import torch
+from torch import Tensor
+
+from .hall_bch import HallBCH, supports_depth
+from .hall_projection import get_hall_projector
+from .signature import signature
+from .tensor_ops import batch_tensor_product
+
+
+@lru_cache(maxsize=None)
+def _compositions(total: int, parts: int) -> Tuple[Tuple[int, ...], ...]:
+    if parts == 1:
+        return ((total,),)
+    result = []
+    for first in range(1, total - parts + 2):
+        for rest in _compositions(total - first, parts - 1):
+            result.append((first, *rest))
+    return tuple(result)
+
+
+def _signature_to_logsignature_tensor(
+    sig_tensors: list[Tensor], width: int, depth: int
+) -> list[Tensor]:
+    """Convert signature tensors to log-signature tensors via log-series.
+
+    This function implements the inverse of the exponential map in the tensor
+    algebra, converting from signature coordinates to log-signature coordinates
+    using the formal logarithm series.
+
+    Parameters
+    ----------
+    sig_tensors : list[Tensor]
+        List where entry ``k`` has shape ``(batch, width, ..., width)`` with
+        ``k+1`` trailing ``width`` axes, representing the signature components
+        at each depth level.
+    width : int
+        Path dimension (number of features).
+    depth : int
+        Truncation depth.
+
+    Returns
+    -------
+    list[Tensor]
+        List of log-signature tensors with the same shapes as ``sig_tensors``,
+        where each entry represents the log-signature components at the
+        corresponding depth level.
+
+    Notes
+    -----
+    This is an internal function used by the default log-signature computation
+    path. The conversion uses the formal logarithm series expansion.
+    """
+    if depth == 0 or not sig_tensors:
+        return []
+
+    device = sig_tensors[0].device
+    dtype = sig_tensors[0].dtype
+    batch_size = sig_tensors[0].shape[0]
+    n = width
+    log_sig: list[Tensor] = []
+
+    for current_depth in range(1, depth + 1):
+        if current_depth > len(sig_tensors):
+            shape = [batch_size] + [n] * current_depth
+            log_sig.append(torch.zeros(shape, device=device, dtype=dtype))
+            continue
+
+        accumulator = sig_tensors[current_depth - 1].clone()
+        for order in range(2, current_depth + 1):
+            coeff = (-1) ** (order + 1) / order
+            for composition in _compositions(current_depth, order):
+                term = sig_tensors[composition[0] - 1]
+                for index in composition[1:]:
+                    term = batch_tensor_product(term, sig_tensors[index - 1])
+                accumulator = accumulator + coeff * term
+
+        log_sig.append(accumulator)
+
+    return log_sig
+
+
+def _unflatten_signature(sig: Tensor, width: int, depth: int) -> list[Tensor]:
+    """Reshape flattened signature blocks into per-depth tensors.
+
+    Converts a flattened signature tensor into a list of tensors, one for each
+    depth level, where each tensor has the appropriate shape for tensor algebra
+    operations.
+
+    Parameters
+    ----------
+    sig : Tensor
+        Flattened signature of shape ``(batch, sum(width**k for k=1..depth))``.
+    width : int
+        Path dimension (number of features).
+    depth : int
+        Truncation depth.
+
+    Returns
+    -------
+    list[Tensor]
+        List of length ``depth`` where entry ``k`` has shape
+        ``(batch, width, ..., width)`` with ``k+1`` trailing width axes.
+
+    Notes
+    -----
+    This is an internal function used to reshape signatures before converting
+    to log-signatures.
+    """
+    batch = sig.shape[0]
+    tensors: list[Tensor] = []
+    offset = 0
+    for current_depth in range(1, depth + 1):
+        size = width**current_depth
+        chunk = sig[:, offset : offset + size]
+        shape = (batch,) + (width,) * current_depth
+        tensors.append(chunk.reshape(*shape))
+        offset += size
+    return tensors
+
+
+def _project_to_hall_basis(
+    log_sig_tensors: list[Tensor], width: int, depth: int
+) -> Tensor:
+    """Project log-signature tensors onto Hall basis using cached projectors.
+
+    Projects the log-signature from tensor algebra coordinates to Hall basis
+    coordinates, which provides a more compact representation.
+
+    Parameters
+    ----------
+    log_sig_tensors : list[Tensor]
+        List of log-signature tensors in tensor algebra coordinates, where
+        entry ``k`` has shape ``(batch, width, ..., width)`` with ``k+1``
+        trailing width axes.
+    width : int
+        Path dimension (number of features).
+    depth : int
+        Truncation depth.
+
+    Returns
+    -------
+    Tensor
+        Tensor of shape ``(batch, logsigdim(width, depth))`` containing the
+        log-signature in Hall basis coordinates.
+
+    Notes
+    -----
+    This function uses cached projectors for efficiency. The projection matrices
+    are computed once and reused for subsequent calls with the same width and depth.
+    """
+    if not log_sig_tensors:
+        return torch.zeros(
+            0, device=torch.device("cpu"), dtype=torch.float32  # pragma: no cover
+        )
+
+    projector = get_hall_projector(
+        width=width,
+        depth=depth,
+        device=log_sig_tensors[0].device,
+        dtype=log_sig_tensors[0].dtype,
+    )
+    return projector.project(log_sig_tensors)
+
+
+def _batch_log_signature(
+    path: Tensor,
+    depth: int,
+    stream: bool = False,
+    gpu_optimized: Optional[bool] = None,
+    chunk_size: Optional[int] = None,
+) -> Tensor:
+    """Computes log-signatures for batched paths using signature computation.
+
+    This implementation computes the signature first, then extracts the log-signature
+    by inverting the exponential map and projecting onto the Hall basis. This is
+    the default method and works for any depth.
+
+    Parameters
+    ----------
+    path : Tensor
+        Tensor of shape ``(batch, length, dim)`` representing batched paths.
+    depth : int
+        Maximum depth to truncate log-signature computation.
+    stream : bool, optional
+        If True, computed log-signatures are returned for each step. Default is False.
+    gpu_optimized : bool, optional
+        Forwarded to :func:`signature`; defaults to GPU path when the input is on CUDA.
+        Default is None.
+    chunk_size : int, optional
+        Optional chunk size for CPU signature scan. Default is None.
+
+    Returns
+    -------
+    Tensor
+        If ``stream=False``: Tensor of shape ``(batch, logsigdim(dim, depth))``
+        containing the final log-signature for each path.
+
+        If ``stream=True``: Tensor of shape ``(batch, length-1, logsigdim(dim, depth))``
+        containing log-signatures at each step.
+
+    Notes
+    -----
+    This is the default log-signature computation method. It works for any depth
+    but may be slower than the BCH method for supported depths (depth <= 4).
+    """
+    batch_size, seq_len, n_features = path.shape
+
+    sig = signature(
+        path,
+        depth=depth,
+        stream=stream,
+        gpu_optimized=gpu_optimized,
+        chunk_size=chunk_size,
+    )
+
+    if not stream:
+        sig_tensors = _unflatten_signature(sig, n_features, depth)
+        log_sig_tensors = _signature_to_logsignature_tensor(
+            sig_tensors, n_features, depth
+        )
+        return _project_to_hall_basis(log_sig_tensors, n_features, depth)
+
+    flattened = sig.reshape(batch_size * (seq_len - 1), -1)
+    sig_tensors = _unflatten_signature(flattened, n_features, depth)
+    log_sig_tensors = _signature_to_logsignature_tensor(sig_tensors, n_features, depth)
+    log_sig = _project_to_hall_basis(log_sig_tensors, n_features, depth)
+    return log_sig.reshape(batch_size, seq_len - 1, -1)
+
+
+def _batch_log_signature_bch(
+    path: Tensor,
+    depth: int,
+    stream: bool = False,
+) -> Tensor:
+    """Compute log-signature via incremental BCH in Hall coordinates (depth <= 4).
+
+    This avoids materializing the full tensor-algebra signature and
+    leverages the fact that each path increment lives in the degree-1
+    component of the free Lie algebra. This method is typically faster
+    than the default signature→log path for supported depths.
+
+    Parameters
+    ----------
+    path : Tensor
+        Tensor of shape ``(batch, length, width)`` representing batched paths.
+    depth : int
+        Truncation depth for the log-signature. Implemented exactly for
+        depth <= 4; higher depths should use the default signature→log path.
+    stream : bool, optional
+        If True, return log-signatures at each step. Default is False.
+
+    Returns
+    -------
+    Tensor
+        If ``stream=False``: Tensor of shape ``(batch, logsigdim(width, depth))``
+        containing the final log-signature for each path.
+
+        If ``stream=True``: Tensor of shape ``(batch, length-1, logsigdim(width, depth))``
+        containing log-signatures at each step.
+
+    Notes
+    -----
+    This method uses the Baker-Campbell-Hausdorff formula to incrementally
+    update the log-signature. It is more memory-efficient than the default
+    method but only supports depths up to 4.
+
+    Examples
+    --------
+    >>> import torch
+    >>> from log_signatures_pytorch.log_signature import _batch_log_signature_bch
+    >>>
+    >>> path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]).unsqueeze(0)
+    >>> log_sig = _batch_log_signature_bch(path, depth=2)
+    >>> log_sig.shape
+    torch.Size([1, 3])
+    """
+    batch_size, seq_len, width = path.shape
+    increments = torch.diff(path, dim=1)
+    bch = HallBCH(width=width, depth=depth, device=path.device, dtype=path.dtype)
+    steps = increments.shape[1]
+
+    # Vectorize embedding of increments into Hall coordinates.
+    hall_increments = torch.zeros(
+        batch_size,
+        steps,
+        bch.dim,
+        device=path.device,
+        dtype=path.dtype,
+    )
+    hall_increments[:, :, :width] = increments
+
+    state = bch.zero(batch_size)
+    if not stream:
+        for step in range(steps):
+            state = bch.bch(state, hall_increments[:, step])
+        return state
+
+    history = []
+    for step in range(steps):
+        state = bch.bch(state, hall_increments[:, step])
+        history.append(state)
+    return torch.stack(history, dim=1)
+
+
+def log_signature(
+    path: Tensor,
+    depth: int,
+    stream: bool = False,
+    gpu_optimized: Optional[bool] = None,
+    chunk_size: Optional[int] = None,
+    method: str = "default",
+) -> Tensor:
+    """Compute log-signatures for batched paths.
+
+    The log-signature is a compressed representation of the signature using the Hall basis
+    of the free Lie algebra. It has fewer components than the full signature while retaining
+    the same information (up to the truncation depth).
+
+    Parameters
+    ----------
+    path : Tensor
+        Tensor of shape ``(batch, length, dim)`` representing batched paths.
+        For a single path, pass ``path.unsqueeze(0)`` to add a batch dimension.
+    depth : int
+        Maximum depth to truncate log-signature computation. The output dimension
+        will be ``logsigdim(dim, depth)``.
+    stream : bool, optional
+        If True, computed log-signatures are returned for each step. Default is False.
+    gpu_optimized : bool, optional
+        If True, use GPU-optimized implementation. If None, auto-detect
+        (defaults to True when the input is on CUDA). Ignored for the BCH path.
+        Default is None.
+    chunk_size : int, optional
+        Optional chunk size for CPU signature scan (default path only).
+        Default is None.
+    method : str, optional
+        Computation method: "default" (signature then log) or "bch_sparse"
+        (sparse Hall-BCH, supported for depth <= 4). For higher depths,
+        "bch_sparse" falls back to the default path automatically.
+        Default is "default".
+
+    Returns
+    -------
+    Tensor
+        If ``stream=False``: Tensor of shape ``(batch, logsigdim(dim, depth))``
+        containing the final log-signature for each path in the batch.
+
+        If ``stream=True``: Tensor of shape ``(batch, length-1, logsigdim(dim, depth))``
+        containing log-signatures at each step along each path.
+
+    Raises
+    ------
+    ValueError
+        If ``path`` is not three-dimensional, or if ``method`` is not
+        "default" or "bch_sparse".
+
+    Examples
+    --------
+    >>> import torch
+    >>> from log_signatures_pytorch import log_signature, logsigdim
+    >>>
+    >>> # Single path (add batch dimension)
+    >>> path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]).unsqueeze(0)
+    >>> log_sig = log_signature(path, depth=2)
+    >>> log_sig.shape
+    torch.Size([1, 3])  # logsigdim(2, 2) = 3
+    >>> logsigdim(2, 2)
+    3
+    >>>
+    >>> # Batched paths
+    >>> batch_paths = torch.tensor([
+    ...     [[0.0, 0.0], [1.0, 1.0]],
+    ...     [[0.0, 0.0], [2.0, 2.0]],
+    ... ])
+    >>> log_sig = log_signature(batch_paths, depth=2)
+    >>> log_sig.shape
+    torch.Size([2, 3])
+    >>>
+    >>> # Streaming log-signatures
+    >>> log_sig_stream = log_signature(path, depth=2, stream=True)
+    >>> log_sig_stream.shape
+    torch.Size([1, 2, 3])  # (batch, steps, logsigdim)
+    >>>
+    >>> # Using BCH method (faster for depth <= 4)
+    >>> log_sig_bch = log_signature(path, depth=2, method="bch_sparse")
+    >>> log_sig_bch.shape
+    torch.Size([1, 3])
+    """
+    if path.ndim != 3:
+        msg = (
+            f"Path must be of shape (batch, path_length, path_dim); got {path.shape}. "
+            "Wrap a single path with path.unsqueeze(0)."
+        )
+        raise ValueError(msg)
+    method = (method or "default").lower()
+    if method == "bch_sparse":
+        if not supports_depth(depth):
+            log_sig = _batch_log_signature(
+                path,
+                depth=depth,
+                stream=stream,
+                gpu_optimized=gpu_optimized,
+                chunk_size=chunk_size,
+            )
+        else:
+            log_sig = _batch_log_signature_bch(
+                path,
+                depth=depth,
+                stream=stream,
+            )
+    elif method in {"default", None}:
+        log_sig = _batch_log_signature(
+            path,
+            depth=depth,
+            stream=stream,
+            gpu_optimized=gpu_optimized,
+            chunk_size=chunk_size,
+        )
+    else:
+        raise ValueError(
+            f"Unsupported method '{method}'. Use 'default' or 'bch_sparse'."
+        )
+
+    return log_sig
