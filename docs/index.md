@@ -80,3 +80,24 @@ uv sync --group dev        # adds pytest/esig/mkdocs for running the full test s
 ## License
 
 MIT
+
+## Citation
+
+If you use this software in your research or in your project, please cite it as follows:
+
+### BibTeX
+
+```bibtex
+@software{log_signatures_pytorch,
+  author = {Aune, Erlend},
+  title = {log-signatures-pytorch: Differentiable log-signature and signature kernels in PyTorch},
+  version = {0.1.2},
+  url = {https://github.com/froskekongen/log_signatures_pytorch},
+  year = {2025},
+  license = {MIT}
+}
+```
+
+### Plain text
+
+Aune, Erlend. (2025). log-signatures-pytorch: Differentiable log-signature and signature kernels in PyTorch (Version 0.1.2). [Computer software]: https://github.com/froskekongen/log_signatures_pytorch
