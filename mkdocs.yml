@@ -15,8 +15,8 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
 
-repo_url: https://github.com/hance-engine/log_signatures_pytorch
-repo_name: hance-engine/log_signatures_pytorch
+repo_url: https://github.com/froskekongen/log_signatures_pytorch
+repo_name: froskekongen/log_signatures_pytorch
 
 nav:
   - Home: index.md

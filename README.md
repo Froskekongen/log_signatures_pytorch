@@ -137,8 +137,8 @@ If you use this software in your research or in your project, please cite it as 
 @software{log_signatures_pytorch,
   author = {Aune, Erlend},
   title = {log-signatures-pytorch: Differentiable log-signature and signature kernels in PyTorch},
-  version = {0.1.0},
-  url = {https://github.com/hance-engine/log_signatures_pytorch},
+  version = {0.1.1},
+  url = {https://github.com/froskekongen/log_signatures_pytorch},
   year = {2025},
   license = {MIT}
 }
@@ -146,4 +146,4 @@ If you use this software in your research or in your project, please cite it as 
 
 ### Plain text
 
-Aune, Erlend. (2025). log-signatures-pytorch: Differentiable log-signature and signature kernels in PyTorch (Version 0.1.0). [Computer software]: https://github.com/hance-engine/log_signatures_pytorch
+Aune, Erlend. (2025). log-signatures-pytorch: Differentiable log-signature and signature kernels in PyTorch (Version 0.1.1). [Computer software]: https://github.com/froskekongen/log_signatures_pytorch
