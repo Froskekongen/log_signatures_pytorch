@@ -94,19 +94,20 @@ def lyndon_words(width: int, depth: int) -> Tuple[WordsBasisElement, ...]:
     return tuple(words)
 
 
-def _basis_key(elem: HallBasisElement):
+def _hall_basis_key(elem: HallBasisElement):
     if isinstance(elem, int):
         return (0, elem)
     left, right = elem
-    return (1, _basis_key(left), _basis_key(right))
+    return (1, _hall_basis_key(left), _hall_basis_key(right))
 
 
-def _is_valid_pair(left: HallBasisElement, right: HallBasisElement) -> bool:
-    if _basis_key(left) >= _basis_key(right):
+def _hall_is_valid_pair(left: HallBasisElement, right: HallBasisElement) -> bool:
+    """Check Hall ordering constraints for a candidate bracket (left, right)."""
+    if _hall_basis_key(left) >= _hall_basis_key(right):
         return False
     if isinstance(right, tuple):
         right_left, _ = right
-        if _basis_key(right_left) > _basis_key(left):
+        if _hall_basis_key(right_left) > _hall_basis_key(left):
             return False
     return True
 
@@ -174,9 +175,9 @@ def hall_basis(width: int, depth: int) -> List[HallBasisElement]:
             right_depth = current_depth - left_depth
             for left in depth_groups[left_depth]:
                 for right in depth_groups[right_depth]:
-                    if _is_valid_pair(left, right):
+                    if _hall_is_valid_pair(left, right):
                         candidates.append((left, right))
-        candidates.sort(key=_basis_key)
+        candidates.sort(key=_hall_basis_key)
         depth_groups[current_depth] = candidates
         basis.extend(candidates)
 
