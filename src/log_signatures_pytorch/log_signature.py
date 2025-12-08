@@ -257,7 +257,6 @@ def _batch_log_signature(
     depth: int,
     stream: bool = False,
     gpu_optimized: Optional[bool] = None,
-    chunk_size: Optional[int] = None,
     mode: str = "hall",
 ) -> Tensor:
     """Compute log-signatures via signature→log pipeline for batched paths.
@@ -277,8 +276,6 @@ def _batch_log_signature(
     gpu_optimized : bool, optional
         Forwarded to :func:`signature`; defaults to GPU path when the input is on CUDA.
         Default is None.
-    chunk_size : int, optional
-        Optional chunk size for CPU signature scan. Default is None.
     mode : str, optional
         Basis for the output coordinates: ``"hall"`` (default) or ``"words"``.
 
@@ -306,7 +303,6 @@ def _batch_log_signature(
         depth=depth,
         stream=stream,
         gpu_optimized=gpu_optimized,
-        chunk_size=chunk_size,
     )
 
     projector = _project_to_hall_basis if mode == "hall" else _project_to_words_basis
@@ -387,7 +383,9 @@ def _batch_log_signature_bch(
     )
     hall_increments[:, :, :width] = increments
 
-    state = bch.zero(batch_size)
+    state = torch.zeros(
+        batch_size, bch.dim, device=path.device, dtype=path.dtype
+    )
     if not stream:
         for step in range(steps):
             state = bch.bch(state, hall_increments[:, step])
@@ -405,7 +403,6 @@ def log_signature(
     depth: int,
     stream: bool = False,
     gpu_optimized: Optional[bool] = None,
-    chunk_size: Optional[int] = None,
     method: str = "default",
     mode: str = "hall",
 ) -> Tensor:
@@ -430,9 +427,6 @@ def log_signature(
     gpu_optimized : bool, optional
         If True, use GPU-optimized implementation. If None, auto-detect
         (defaults to True when the input is on CUDA). Ignored for the BCH path.
-        Default is None.
-    chunk_size : int, optional
-        Optional chunk size for CPU signature scan (default path only).
         Default is None.
     method : str, optional
         Computation method: "default" (signature then log) or "bch_sparse"
@@ -513,7 +507,6 @@ def log_signature(
                 depth=depth,
                 stream=stream,
                 gpu_optimized=gpu_optimized,
-                chunk_size=chunk_size,
                 mode=mode,
             )
         else:
@@ -528,7 +521,6 @@ def log_signature(
             depth=depth,
             stream=stream,
             gpu_optimized=gpu_optimized,
-            chunk_size=chunk_size,
             mode=mode,
         )
     else:

@@ -141,33 +141,6 @@ class HallBCH:
         self.device = device
         self.dtype = dtype
 
-    def zero(self, batch_size: int) -> torch.Tensor:
-        """Create a zero log-signature in Hall coordinates.
-
-        Parameters
-        ----------
-        batch_size : int
-            Batch size for the output tensor.
-
-        Returns
-        -------
-        torch.Tensor
-            Tensor of shape ``(batch_size, self.dim)`` filled with zeros.
-
-        Examples
-        --------
-        >>> import torch
-        >>> from log_signatures_pytorch.hall_bch import HallBCH
-        >>>
-        >>> bch = HallBCH(width=2, depth=2, device=torch.device("cpu"), dtype=torch.float32)
-        >>> zero = bch.zero(batch_size=3)
-        >>> zero.shape
-        torch.Size([3, 3])
-        >>> torch.allclose(zero, torch.zeros(3, 3))
-        True
-        """
-        return torch.zeros(batch_size, self.dim, device=self.device, dtype=self.dtype)
-
     def increment_to_hall(self, delta: torch.Tensor) -> torch.Tensor:
         """Embed path increment (batch, width) into Hall coordinates.
 

@@ -15,7 +15,6 @@ def signature(
     depth: int,
     stream: bool = False,
     gpu_optimized: Optional[bool] = None,
-    chunk_size: Optional[int] = None,
 ) -> Tensor:
     """Compute signatures for batched paths.
 
@@ -37,9 +36,6 @@ def signature(
     gpu_optimized : bool, optional
         If True, use the GPU-optimized implementation. If None, automatically
         detects based on whether the input tensor is on CUDA. Default is None.
-    chunk_size : int, optional
-        Optional chunk size for CPU signature scan. Can help reduce memory
-        usage for long sequences. Default is None.
 
     Returns
     -------
@@ -92,19 +88,17 @@ def signature(
 
     if gpu_optimized:
         return _batch_signature_gpu(path, depth=depth, stream=stream)
-    return _batch_signature(path, depth=depth, stream=stream, chunk_size=chunk_size)
+    return _batch_signature(path, depth=depth, stream=stream)
 
 
 def _batch_signature(
     path: Tensor,
     depth: int,
     stream: bool = False,
-    chunk_size: Optional[int] = None,
 ) -> Tensor:
     """Compute signatures for batched paths on CPU using scan operations.
 
-    This is the CPU-optimized implementation that uses sequential scan operations
-    with optional chunking to improve cache locality for long paths.
+    This is the CPU-optimized implementation that uses sequential scan operations.
 
     Parameters
     ----------
@@ -114,9 +108,6 @@ def _batch_signature(
         Maximum depth to truncate signature computation.
     stream : bool, optional
         If True, return signatures at each step. Default is False.
-    chunk_size : int, optional
-        Optional chunk size for CPU signature scan. Can help reduce memory
-        usage for long sequences. Default is None.
 
     Returns
     -------
@@ -135,19 +126,12 @@ def _batch_signature(
     batch_size, seq_len, n_features = path.shape
     path_increments = torch.diff(path, dim=1)  # Shape: (batch, length-1, dim)
     exp_term = batch_restricted_exp(path_increments[:, 0], depth=depth)
-    remaining_steps = path_increments.shape[1] - 1
     tail_increments = path_increments[:, 1:]
-
-    # Optional chunking to improve cache locality for long paths.
-    cs = chunk_size or (remaining_steps if remaining_steps > 0 else 1)
 
     if not stream:
         carry = exp_term
-        for start in range(0, remaining_steps, cs):
-            end = min(remaining_steps, start + cs)
-            chunk = tail_increments[:, start:end]  # (batch, chunk, dim)
-            for step in range(chunk.shape[1]):
-                carry = batch_mult_fused_restricted_exp(chunk[:, step], carry)
+        for step in range(tail_increments.shape[1]):
+            carry = batch_mult_fused_restricted_exp(tail_increments[:, step], carry)
         return torch.cat(
             [
                 c.reshape(batch_size, n_features ** (1 + idx))
@@ -158,13 +142,10 @@ def _batch_signature(
     else:
         histories = [[term] for term in exp_term]
         carry = exp_term
-        for start in range(0, remaining_steps, cs):
-            end = min(remaining_steps, start + cs)
-            chunk = tail_increments[:, start:end]
-            for step in range(chunk.shape[1]):
-                carry = batch_mult_fused_restricted_exp(chunk[:, step], carry)
-                for idx, term in enumerate(carry):
-                    histories[idx].append(term)
+        for step in range(tail_increments.shape[1]):
+            carry = batch_mult_fused_restricted_exp(tail_increments[:, step], carry)
+            for idx, term in enumerate(carry):
+                histories[idx].append(term)
 
         stacked = [
             torch.stack(history, dim=0)  # (steps+1, batch, ...)

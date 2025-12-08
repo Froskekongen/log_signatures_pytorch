@@ -101,7 +101,6 @@ print(logsigkeys_words(width=2, depth=3))
 ### Choosing computation mode
 
 - `gpu_optimized`: defaults to True when the input tensor is on CUDA. Set False to force the CPU scan path.
-- `chunk_size`: optional on CPU to trade a small amount of extra compute for lower peak memory when sequences are long.
 - `method`: `log_signature(..., method="bch_sparse")` uses the incremental BCH routine for depths supported by `HallBCH` (depth ≤ 4); otherwise it falls back to the default path.
 - `mode`: `log_signature(..., mode="hall"|"words")` chooses the coordinate basis. BCH currently supports `mode="hall"`; the default path supports both.
 
