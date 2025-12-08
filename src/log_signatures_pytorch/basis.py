@@ -10,7 +10,8 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Dict, List, Tuple, Union
 
-BasisElement = Union[int, Tuple["BasisElement", "BasisElement"]]
+# HallBasisElement represents Hall set elements as ints or nested brackets.
+HallBasisElement = Union[int, Tuple["HallBasisElement", "HallBasisElement"]]
 
 # WordsBasisElement represents a Lyndon word as a tuple of ints (1-based letters)
 WordsBasisElement = Tuple[int, ...]
@@ -93,14 +94,14 @@ def lyndon_words(width: int, depth: int) -> Tuple[WordsBasisElement, ...]:
     return tuple(words)
 
 
-def _basis_key(elem: BasisElement):
+def _basis_key(elem: HallBasisElement):
     if isinstance(elem, int):
         return (0, elem)
     left, right = elem
     return (1, _basis_key(left), _basis_key(right))
 
 
-def _is_valid_pair(left: BasisElement, right: BasisElement) -> bool:
+def _is_valid_pair(left: HallBasisElement, right: HallBasisElement) -> bool:
     if _basis_key(left) >= _basis_key(right):
         return False
     if isinstance(right, tuple):
@@ -110,7 +111,7 @@ def _is_valid_pair(left: BasisElement, right: BasisElement) -> bool:
     return True
 
 
-def hall_basis(width: int, depth: int) -> List[BasisElement]:
+def hall_basis(width: int, depth: int) -> List[HallBasisElement]:
     """Return Hall basis elements up to ``depth`` over an alphabet of size ``width``.
 
     The Hall basis is a particular basis for the free Lie algebra. Elements are
@@ -127,10 +128,9 @@ def hall_basis(width: int, depth: int) -> List[BasisElement]:
 
     Returns
     -------
-    List[BasisElement]
-        List of Hall basis elements, where each element is either an integer
-        (for degree-1 elements) or a nested tuple representing a Lie bracket
-        (for higher degree elements).
+    List[HallBasisElement]
+        Hall basis elements, where each element is either an integer (degree 1)
+        or a nested tuple representing a Lie bracket (higher degrees).
 
     Raises
     ------
@@ -163,13 +163,13 @@ def hall_basis(width: int, depth: int) -> List[BasisElement]:
     if depth < 1:
         raise ValueError("depth must be >= 1")
 
-    depth_groups: Dict[int, List[BasisElement]] = {}
+    depth_groups: Dict[int, List[HallBasisElement]] = {}
     letters = list(range(1, width + 1))
     depth_groups[1] = letters
-    basis: List[BasisElement] = list(letters)
+    basis: List[HallBasisElement] = list(letters)
 
     for current_depth in range(2, depth + 1):
-        candidates: List[BasisElement] = []
+        candidates: List[HallBasisElement] = []
         for left_depth in range(1, current_depth):
             right_depth = current_depth - left_depth
             for left in depth_groups[left_depth]:
@@ -295,7 +295,7 @@ def logsigkeys(width: int, depth: int) -> List[str]:
     ['1', '2', '3', '[1,2]', '[1,3]', '[2,3]']
     """
 
-    def _to_str(elem: BasisElement) -> str:
+    def _to_str(elem: HallBasisElement) -> str:
         if isinstance(elem, int):
             return str(elem)
         left, right = elem

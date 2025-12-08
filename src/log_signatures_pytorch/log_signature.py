@@ -383,9 +383,7 @@ def _batch_log_signature_bch(
     )
     hall_increments[:, :, :width] = increments
 
-    state = torch.zeros(
-        batch_size, bch.dim, device=path.device, dtype=path.dtype
-    )
+    state = torch.zeros(batch_size, bch.dim, device=path.device, dtype=path.dtype)
     if not stream:
         for step in range(steps):
             state = bch.bch(state, hall_increments[:, step])

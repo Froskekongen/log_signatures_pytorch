@@ -6,38 +6,36 @@ from typing import Dict, List, Tuple, Union
 
 import torch
 
-from .basis import hall_basis
+from .basis import HallBasisElement, hall_basis
 from .tensor_ops import lie_brackets
-
-BasisElement = Union[int, Tuple["BasisElement", "BasisElement"]]
 
 
 @lru_cache(maxsize=None)
-def _element_depth(elem: BasisElement) -> int:
+def _hall_element_depth(elem: HallBasisElement) -> int:
     if isinstance(elem, int):
         return 1
     left, right = elem
-    return _element_depth(left) + _element_depth(right)
+    return _hall_element_depth(left) + _hall_element_depth(right)
 
 
 @lru_cache(maxsize=None)
-def _basis_with_depths(
+def _hall_basis_with_depths(
     width: int, depth: int
-) -> Tuple[Tuple[BasisElement, ...], Dict[int, Tuple[BasisElement, ...]]]:
+) -> Tuple[Tuple[HallBasisElement, ...], Dict[int, Tuple[HallBasisElement, ...]]]:
     basis_tuple = tuple(hall_basis(width, depth))
-    depth_map: Dict[int, List[BasisElement]] = {}
+    depth_map: Dict[int, List[HallBasisElement]] = {}
     for elem in basis_tuple:
-        elem_depth = _element_depth(elem)
+        elem_depth = _hall_element_depth(elem)
         depth_map.setdefault(elem_depth, []).append(elem)
     return basis_tuple, {k: tuple(v) for k, v in depth_map.items()}
 
 
 @lru_cache(maxsize=None)
-def _basis_tensors(width: int, depth: int) -> Dict[BasisElement, torch.Tensor]:
-    basis, _ = _basis_with_depths(width, depth)
-    cache: Dict[BasisElement, torch.Tensor] = {}
+def _hall_basis_tensors(width: int, depth: int) -> Dict[HallBasisElement, torch.Tensor]:
+    basis, _ = _hall_basis_with_depths(width, depth)
+    cache: Dict[HallBasisElement, torch.Tensor] = {}
 
-    def build(elem: BasisElement) -> torch.Tensor:
+    def build(elem: HallBasisElement) -> torch.Tensor:
         if elem in cache:
             return cache[elem]
         if isinstance(elem, int):
@@ -55,9 +53,9 @@ def _basis_tensors(width: int, depth: int) -> Dict[BasisElement, torch.Tensor]:
 
 
 @lru_cache(maxsize=None)
-def _projection_matrices(width: int, depth: int) -> Dict[int, torch.Tensor]:
-    _, grouped = _basis_with_depths(width, depth)
-    tensors = _basis_tensors(width, depth)
+def _hall_projection_matrices(width: int, depth: int) -> Dict[int, torch.Tensor]:
+    _, grouped = _hall_basis_with_depths(width, depth)
+    tensors = _hall_basis_tensors(width, depth)
     matrices: Dict[int, torch.Tensor] = {}
 
     for current_depth in range(1, depth + 1):
@@ -128,7 +126,7 @@ class HallProjector:
     dtype: torch.dtype
 
     def __post_init__(self) -> None:
-        basis, grouped = _basis_with_depths(self.width, self.depth)
+        basis, grouped = _hall_basis_with_depths(self.width, self.depth)
         self._basis = list(basis)
         self._depth_offsets: Dict[int, Tuple[int, int]] = {}
         offset = 0
@@ -136,7 +134,7 @@ class HallProjector:
             count = len(grouped.get(d, ()))
             self._depth_offsets[d] = (offset, offset + count)
             offset += count
-        base_mats = _projection_matrices(self.width, self.depth)
+        base_mats = _hall_projection_matrices(self.width, self.depth)
         self._matrices: Dict[int, torch.Tensor] = {
             depth: mat.to(device=self.device, dtype=self.dtype)
             for depth, mat in base_mats.items()

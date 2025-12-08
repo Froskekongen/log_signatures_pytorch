@@ -20,7 +20,10 @@ from log_signatures_pytorch.log_signature import (
     _unflatten_signature,
     log_signature,
 )
-from log_signatures_pytorch.hall_projection import _basis_tensors, _element_depth
+from log_signatures_pytorch.hall_projection import (
+    _hall_basis_tensors,
+    _hall_element_depth,
+)
 from log_signatures_pytorch.signature import signature
 from log_signatures_pytorch.tensor_ops import batch_lie_brackets, lie_brackets
 
@@ -142,10 +145,10 @@ class TestLyndonWords:
     def _hall_to_words_matrix(width: int, depth: int, device: str = "cpu"):
         basis = hall_basis(width, depth)
         dim = len(basis)
-        basis_tensors = _basis_tensors(width, depth)
+        basis_tensors = _hall_basis_tensors(width, depth)
         cols = []
         for elem in basis:
-            level = _element_depth(elem)
+            level = _hall_element_depth(elem)
             log_sig_tensors = [
                 torch.zeros(1, *([width] * d), dtype=torch.float64, device=device)
                 for d in range(1, depth + 1)

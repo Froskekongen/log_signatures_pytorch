@@ -12,7 +12,11 @@ from functools import lru_cache
 import torch
 
 from .basis import hall_basis, logsigdim
-from .hall_projection import _basis_tensors, _element_depth, get_hall_projector
+from .hall_projection import (
+    _hall_basis_tensors,
+    _hall_element_depth,
+    get_hall_projector,
+)
 from .tensor_ops import lie_brackets
 
 
@@ -51,7 +55,7 @@ def _structure_constants(width: int, depth: int) -> torch.Tensor:
         device=torch.device("cpu"),
         dtype=torch.float64,
     )
-    basis_tensors = _basis_tensors(width, depth)
+    basis_tensors = _hall_basis_tensors(width, depth)
 
     zeros_template = [
         torch.zeros((1, *([width] * current_depth)), dtype=torch.float64)
@@ -59,10 +63,10 @@ def _structure_constants(width: int, depth: int) -> torch.Tensor:
     ]
 
     for i, elem_i in enumerate(basis):
-        depth_i = _element_depth(elem_i)
+        depth_i = _hall_element_depth(elem_i)
         tensor_i = basis_tensors[elem_i]
         for j, elem_j in enumerate(basis):
-            total_depth = depth_i + _element_depth(elem_j)
+            total_depth = depth_i + _hall_element_depth(elem_j)
             if total_depth > depth:
                 continue
             bracket_tensor = lie_brackets(tensor_i, basis_tensors[elem_j])
