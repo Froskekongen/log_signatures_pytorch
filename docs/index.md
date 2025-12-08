@@ -61,13 +61,11 @@ print(keys)           # ['1', '2', '[1,2]'] (matches esig format)
 
 ## Installation
 
-Requires Python 3.13+ and PyTorch ≥ 2.9 (CPU or CUDA builds work). From the repository root:
+Requires Python 3.13+ and PyTorch ≥ 2.9 (CPU or CUDA builds work). 
 
+To install from pypi using pip, run:
 ```bash
-uv venv
-source .venv/bin/activate
-uv sync                    # installs runtime deps + project in editable mode
-uv sync --group dev        # adds pytest/esig/mkdocs for running the full test suite
+pip install log-signatures-pytorch
 ```
 
 ## References

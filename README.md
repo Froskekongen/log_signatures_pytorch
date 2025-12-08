@@ -13,13 +13,19 @@ Differentiable log-signature and signature kernels implemented in PyTorch with b
 
 ## Installation
 
-Requires Python 3.13+ and PyTorch ≥ 2.9 (CPU or CUDA builds work). From the repository root:
+Requires Python 3.13+ and PyTorch ≥ 2.9 (CPU or CUDA builds work).  To install from pypi using pip:
+
+```bash
+pip install log-signatures-pytorch
+```
+
+
+From the repository root:
 
 ```bash
 uv venv
 source .venv/bin/activate
 uv sync                    # installs runtime deps + project in editable mode
-# uv sync --group dev      # adds pytest/esig for running the full test suite
 ```
 
 Verify PyTorch is available:

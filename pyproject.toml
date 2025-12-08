@@ -1,6 +1,6 @@
 [project]
 name = "log-signatures-pytorch"
-version = "0.1.4"
+version = "0.1.5"
 license = {file = "LICENSE"}
 authors = [
     {name = "Erlend Aune", email = "erlend.aune@pm.me"},
