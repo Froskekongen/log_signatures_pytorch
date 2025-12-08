@@ -184,7 +184,9 @@ def _project_to_hall_basis(
     """
     if not log_sig_tensors:
         return torch.zeros(
-            0, device=torch.device("cpu"), dtype=torch.float32  # pragma: no cover
+            0,
+            device=torch.device("cpu"),
+            dtype=torch.float32,  # pragma: no cover
         )
 
     projector = get_hall_projector(
@@ -226,7 +228,9 @@ def _project_to_words_basis(
     """
     if not log_sig_tensors:
         return torch.zeros(
-            0, device=torch.device("cpu"), dtype=torch.float32  # pragma: no cover
+            0,
+            device=torch.device("cpu"),
+            dtype=torch.float32,  # pragma: no cover
         )
 
     indices_by_depth = _words_indices(width, depth)
@@ -305,9 +309,7 @@ def _batch_log_signature(
         chunk_size=chunk_size,
     )
 
-    projector = (
-        _project_to_hall_basis if mode == "hall" else _project_to_words_basis
-    )
+    projector = _project_to_hall_basis if mode == "hall" else _project_to_words_basis
 
     if not stream:
         sig_tensors = _unflatten_signature(sig, n_features, depth)

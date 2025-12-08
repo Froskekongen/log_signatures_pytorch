@@ -294,6 +294,7 @@ def logsigkeys(width: int, depth: int) -> List[str]:
     >>> keys
     ['1', '2', '3', '[1,2]', '[1,3]', '[2,3]']
     """
+
     def _to_str(elem: BasisElement) -> str:
         if isinstance(elem, int):
             return str(elem)

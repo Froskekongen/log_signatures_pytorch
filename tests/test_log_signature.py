@@ -150,8 +150,8 @@ class TestLyndonWords:
                 torch.zeros(1, *([width] * d), dtype=torch.float64, device=device)
                 for d in range(1, depth + 1)
             ]
-            log_sig_tensors[level - 1] = basis_tensors[elem].unsqueeze(0).to(
-                device=device, dtype=torch.float64
+            log_sig_tensors[level - 1] = (
+                basis_tensors[elem].unsqueeze(0).to(device=device, dtype=torch.float64)
             )
             hall_vec = _project_to_hall_basis(log_sig_tensors, width, depth)
             words_vec = _project_to_words_basis(log_sig_tensors, width, depth)
@@ -338,7 +338,9 @@ class TestLogSignature:
         assert not torch.isnan(base_path.grad).any()
 
     def test_log_signature_words_differentiability(self):
-        base_path = torch.tensor([[0.0, 0.0], [0.5, -0.25], [1.0, 0.75]], requires_grad=True)
+        base_path = torch.tensor(
+            [[0.0, 0.0], [0.5, -0.25], [1.0, 0.75]], requires_grad=True
+        )
         path = base_path.unsqueeze(0)
         depth = 3
 

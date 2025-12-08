@@ -80,14 +80,17 @@ def test_batch_lie_bracket_matches_elementwise() -> None:
     torch.testing.assert_close(batch_result, expected, atol=1e-12, rtol=1e-12)
 
 
-@pytest.mark.parametrize("width,depth,mode", [
-    (2, 1, "hall"),
-    (2, 2, "hall"),
-    (3, 2, "hall"),
-    (3, 3, "hall"),
-    (2, 2, "words"),
-    (3, 3, "words"),
-])
+@pytest.mark.parametrize(
+    "width,depth,mode",
+    [
+        (2, 1, "hall"),
+        (2, 2, "hall"),
+        (3, 2, "hall"),
+        (3, 3, "hall"),
+        (2, 2, "words"),
+        (3, 3, "words"),
+    ],
+)
 def test_log_signature_zero_path_is_zero(width: int, depth: int, mode: str) -> None:
     path = torch.zeros(1, 5, width, dtype=torch.float64)
     log_sig = log_signature(path, depth=depth, mode=mode)
@@ -112,9 +115,9 @@ def test_log_signature_single_segment_has_only_level1() -> None:
 
 def test_log_signature_single_segment_words_matches_level1() -> None:
     displacement = torch.tensor([0.3, 0.4, -0.1], dtype=torch.float64)
-    path = torch.stack(
-        [torch.zeros_like(displacement), displacement], dim=0
-    ).unsqueeze(0)
+    path = torch.stack([torch.zeros_like(displacement), displacement], dim=0).unsqueeze(
+        0
+    )
     depth = 3
     log_sig = log_signature(path, depth=depth, mode="words")
     expected_dim = logsigdim_words(3, depth)

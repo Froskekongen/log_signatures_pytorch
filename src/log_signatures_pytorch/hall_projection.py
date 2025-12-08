@@ -197,6 +197,7 @@ class HallProjector:
 
         return torch.cat(coeffs, dim=1)
 
+
 _PROJECTOR_CACHE: Dict[Tuple[int, int, torch.device, torch.dtype], HallProjector] = {}
 
 
