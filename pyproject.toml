@@ -13,6 +13,11 @@ dependencies = [
     "torch>=2.9.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/froskekongen/log_signatures_pytorch"
+Repository = "https://github.com/froskekongen/log_signatures_pytorch"
+Documentation = "https://froskekongen.github.io/log_signatures_pytorch/"
+
 [dependency-groups]
 dev = [
     "esig>=1.0.0",
