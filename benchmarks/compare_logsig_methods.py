@@ -11,47 +11,17 @@ from __future__ import annotations
 
 import argparse
 import math
-import time
 from typing import Iterable, List, Sequence
 
 import torch
 
+from benchmarks.utils import generate_paths, time_call
 from log_signatures_pytorch.hall_bch import supports_depth
 from log_signatures_pytorch.log_signature import log_signature
 
 
 def _format_ms(value: float) -> str:
     return f"{value * 1e3:8.2f}"
-
-
-def _generate_paths(
-    batch: int,
-    length: int,
-    width: int,
-    dtype: torch.dtype,
-    device: torch.device,
-    seed: int,
-) -> torch.Tensor:
-    g = torch.Generator(device="cpu")
-    g.manual_seed(seed)
-    increments = torch.randn(batch, length, width, generator=g, dtype=dtype)
-    return torch.cumsum(increments, dim=1).to(device)
-
-
-def _maybe_sync(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-
-
-def _time_call(fn, *args, device: torch.device, repeats: int, warmup: int) -> float:
-    for _ in range(warmup):
-        fn(*args)
-    _maybe_sync(device)
-    start = time.perf_counter()
-    for _ in range(repeats):
-        fn(*args)
-    _maybe_sync(device)
-    return (time.perf_counter() - start) / repeats
 
 
 def benchmark(
@@ -66,9 +36,10 @@ def benchmark(
     stream: bool,
     seed: int,
     include_sparse: bool,
+    mode: str,
 ) -> List[dict]:
-    header = "width depth length batch stream default_ms"
-    if include_sparse:
+    header = "width depth length batch mode stream default_ms"
+    if include_sparse and mode == "hall":
         header += "  bch_sprs_ms sprs_spdup"
     print(header)
     records: List[dict] = []
@@ -77,7 +48,7 @@ def benchmark(
             bch_supported = supports_depth(depth)
             for length in lengths:
                 for batch in batches:
-                    paths = _generate_paths(
+                    paths = generate_paths(
                         batch=batch,
                         length=length,
                         width=width,
@@ -85,14 +56,14 @@ def benchmark(
                         device=device,
                         seed=seed + length + width + depth + batch,
                     )
-                    default_time = _time_call(
+                    default_time = time_call(
                         lambda p: log_signature(
                             p,
                             depth=depth,
                             stream=stream,
                             gpu_optimized=None,
                             method="default",
-                            mode="hall",
+                            mode=mode,
                         ),
                         paths,
                         device=device,
@@ -100,8 +71,8 @@ def benchmark(
                         warmup=warmup,
                     )
                     sparse_time = math.nan
-                    if bch_supported and include_sparse:
-                        sparse_time = _time_call(
+                    if bch_supported and include_sparse and mode == "hall":
+                        sparse_time = time_call(
                             lambda p: log_signature(
                                 p,
                                 depth=depth,
@@ -126,6 +97,7 @@ def benchmark(
                             "depth": depth,
                             "length": length,
                             "batch": batch,
+                            "mode": mode,
                             "stream": stream,
                             "default_ms": default_time * 1e3,
                             "bch_sparse_ms": sparse_time * 1e3,
@@ -134,9 +106,9 @@ def benchmark(
                     )
                     line = (
                         f"{width:>5} {depth:>5} {length:>6} {batch:>5} "
-                        f"{str(stream):>6} {_format_ms(default_time)}"
+                        f"{mode:>6} {str(stream):>6} {_format_ms(default_time)}"
                     )
-                    if include_sparse:
+                    if include_sparse and mode == "hall":
                         sprs_str = (
                             f"{_format_ms(sparse_time)}" if bch_supported else "   n/a "
                         )
@@ -184,6 +156,12 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         help="Include scatter-based sparse BCH timings.",
     )
     parser.add_argument(
+        "--mode",
+        choices=["words", "hall"],
+        default="hall",
+        help="Basis for default log-signature path; BCH timings only support 'hall'.",
+    )
+    parser.add_argument(
         "--output-csv",
         type=str,
         default=None,
@@ -199,6 +177,9 @@ def main() -> None:
         raise SystemExit("CUDA requested but not available.")
     dtype = torch.float32 if args.dtype == "float32" else torch.float64
     torch.set_grad_enabled(False)
+    if args.include_sparse and args.mode != "hall":
+        print("mode='words' selected; skipping BCH sparse timings (Hall-only).")
+        args.include_sparse = False
     records = benchmark(
         lengths=args.lengths,
         widths=args.widths,
@@ -211,6 +192,7 @@ def main() -> None:
         stream=args.stream,
         seed=args.seed,
         include_sparse=args.include_sparse,
+        mode=args.mode,
     )
     if args.output_csv:
         import csv
@@ -220,6 +202,7 @@ def main() -> None:
             "depth",
             "length",
             "batch",
+            "mode",
             "stream",
             "default_ms",
             "bch_sparse_ms",

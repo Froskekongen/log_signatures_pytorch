@@ -107,4 +107,3 @@ def _project_to_words_basis(
             dtype=log_sig_tensors[0].dtype,
         )
     return torch.cat(slices, dim=1)
-

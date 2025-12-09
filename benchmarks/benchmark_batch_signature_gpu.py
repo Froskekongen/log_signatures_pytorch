@@ -13,17 +13,13 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 
 import torch
 
-from log_signatures_pytorch.signature import _batch_signature_gpu
+from benchmarks.utils import generate_paths, maybe_sync, time_call
 from log_signatures_pytorch.log_signature import log_signature
+from log_signatures_pytorch.signature import _batch_signature_gpu
 
 _COMPILED_CACHE: Dict[
-    Tuple[int, bool, str, bool, int, int, int, torch.dtype, str], callable
+    Tuple[int, bool, str, bool, int, int, int, torch.dtype, str, str], callable
 ] = {}
-
-
-def _maybe_sync(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize()
 
 
 def _make_signature_fn(
@@ -38,6 +34,7 @@ def _make_signature_fn(
     cache_compiles: bool,
     reset_dynamo: bool,
     target: str,
+    mode: str,
 ):
     compiled = compile_mode != "none"
 
@@ -46,7 +43,13 @@ def _make_signature_fn(
         def fn(path: torch.Tensor) -> torch.Tensor:
             if target == "signature":
                 return _batch_signature_gpu(path, depth=depth, stream=stream)
-            return log_signature(path, depth=depth, stream=stream, method="default")
+            return log_signature(
+                path,
+                depth=depth,
+                stream=stream,
+                method="default",
+                mode=mode,
+            )
 
         return fn
 
@@ -59,7 +62,13 @@ def _make_signature_fn(
     def fn(path: torch.Tensor) -> torch.Tensor:
         if target == "signature":
             return _batch_signature_gpu(path, depth=depth, stream=stream)
-        return log_signature(path, depth=depth, stream=stream, method="default")
+        return log_signature(
+            path,
+            depth=depth,
+            stream=stream,
+            method="default",
+            mode=mode,
+        )
 
     if cache_compiles:
         key = (
@@ -72,6 +81,7 @@ def _make_signature_fn(
             width,
             dtype,
             target,
+            mode,
         )
         cached = _COMPILED_CACHE.get(key)
         if cached is not None:
@@ -82,31 +92,6 @@ def _make_signature_fn(
         return compiled_fn
 
     return torch.compile(fn, mode=compile_mode, fullgraph=compile_fullgraph)
-
-
-def _generate_paths(
-    batch: int,
-    length: int,
-    width: int,
-    dtype: torch.dtype,
-    device: torch.device,
-    seed: int,
-) -> torch.Tensor:
-    g = torch.Generator(device="cpu")
-    g.manual_seed(seed)
-    increments = torch.randn(batch, length, width, generator=g, dtype=dtype)
-    return torch.cumsum(increments, dim=1).to(device)
-
-
-def _time_call(fn, *args, device: torch.device, warmup: int, repeats: int) -> float:
-    for _ in range(warmup):
-        fn(*args)
-    _maybe_sync(device)
-    start = time.perf_counter()
-    for _ in range(repeats):
-        fn(*args)
-    _maybe_sync(device)
-    return (time.perf_counter() - start) / repeats
 
 
 def benchmark(
@@ -126,8 +111,12 @@ def benchmark(
     reset_dynamo: bool,
     measure_compile_time: bool,
     target: str,
+    mode: str,
 ) -> List[dict]:
-    header = "width depth length batch stream compiled mode target dtype device ms_per_call compile_ms"
+    header = (
+        "width depth length batch stream compiled compile_mode target basis dtype device "
+        "ms_per_call compile_ms"
+    )
     print(header)
     records: List[dict] = []
     for compile_mode in compile_modes:
@@ -148,8 +137,9 @@ def benchmark(
                             cache_compiles=cache_compiles,
                             reset_dynamo=reset_dynamo,
                             target=target,
+                            mode=mode,
                         )
-                        path = _generate_paths(
+                        path = generate_paths(
                             batch=batch,
                             length=length,
                             width=width,
@@ -159,13 +149,13 @@ def benchmark(
                         )
                         compile_ms = 0.0
                         if compiled and measure_compile_time:
-                            _maybe_sync(device)
+                            maybe_sync(device)
                             start_compile = time.perf_counter()
                             signature_fn(path)
-                            _maybe_sync(device)
+                            maybe_sync(device)
                             compile_ms = (time.perf_counter() - start_compile) * 1e3
                         warmup_effective = warmup if not compiled else max(1, warmup)
-                        elapsed = _time_call(
+                        elapsed = time_call(
                             signature_fn,
                             path,
                             device=device,
@@ -181,6 +171,7 @@ def benchmark(
                             "compiled": compiled,
                             "compile_mode": compile_mode if compiled else "none",
                             "target": target,
+                            "basis": mode if target == "log_signature" else "n/a",
                             "dtype": str(dtype).replace("torch.", ""),
                             "device": device.type,
                             "ms_per_call": elapsed * 1e3,
@@ -189,8 +180,8 @@ def benchmark(
                         records.append(record)
                         print(
                             f"{width:>5} {depth:>5} {length:>6} {batch:>5} "
-                            f"{str(stream):>6} {str(compiled):>8} {record['compile_mode'][:6]:>6} "
-                            f"{target[:4]:>6} {record['dtype']:>7} {record['device']:>6} "
+                            f"{str(stream):>6} {str(compiled):>8} {record['compile_mode'][:12]:>12} "
+                            f"{target[:4]:>6} {record['basis'][:5]:>6} {record['dtype']:>7} {record['device']:>6} "
                             f"{record['ms_per_call']:10.3f} {record['compile_ms']:10.3f}"
                         )
     return records
@@ -309,6 +300,12 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         default="signature",
         help="Whether to benchmark signatures or log-signatures.",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["words", "hall"],
+        default="hall",
+        help="Basis for log-signature target (ignored when --target=signature).",
+    )
     return parser.parse_args(argv)
 
 
@@ -336,6 +333,7 @@ def main() -> None:
         reset_dynamo=args.reset_dynamo,
         measure_compile_time=args.measure_compile_time,
         target=args.target,
+        mode=args.mode,
     )
     if args.output_csv:
         import csv
@@ -356,6 +354,7 @@ def main() -> None:
             "compiled",
             "compile_mode",
             "target",
+            "basis",
             "dtype",
             "device",
             "ms_per_call",

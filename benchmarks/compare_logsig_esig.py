@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import argparse
 import statistics
-import time
 from typing import Iterable, List, Sequence
 
 import torch
+
+from benchmarks.utils import generate_paths, maybe_sync, time_call_once
 
 try:
     import esig
@@ -24,29 +25,6 @@ except ImportError as exc:  # pragma: no cover - runtime guard
     ) from exc
 
 from log_signatures_pytorch.log_signature import log_signature
-
-
-def _maybe_sync(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-
-
-def _generate_paths(
-    batch_size: int, length: int, width: int, dtype: torch.dtype, seed: int
-) -> torch.Tensor:
-    g = torch.Generator(device="cpu")
-    g.manual_seed(seed)
-    increments = torch.randn(batch_size, length, width, generator=g, dtype=dtype)
-    return torch.cumsum(increments, dim=1)
-
-
-def _time_call(fn, *args, device: torch.device) -> tuple[torch.Tensor, float]:
-    _maybe_sync(device)
-    start = time.perf_counter()
-    result = fn(*args)
-    _maybe_sync(device)
-    elapsed = time.perf_counter() - start
-    return result, elapsed
 
 
 def _format_seconds(value: float) -> str:
@@ -65,6 +43,7 @@ def benchmark(
     dtype: torch.dtype,
     device: torch.device,
     seed: int,
+    mode: str,
 ) -> List[dict]:
     rows: List[str] = []
     header = "width depth length batch esig_time logsig_time speedup max_err"
@@ -76,8 +55,8 @@ def benchmark(
                 log_times: List[float] = []
                 esig_times: List[float] = []
                 max_errors: List[float] = []
-                warmup_paths_cpu = _generate_paths(
-                    batch_size=batch_size,
+                warmup_paths_cpu = generate_paths(
+                    batch=batch_size,
                     length=length,
                     width=width,
                     dtype=dtype,
@@ -92,8 +71,13 @@ def benchmark(
                 )
 
                 for _ in range(warmup):
-                    log_signature(warmup_paths, depth, False)
-                _maybe_sync(device)
+                    log_signature(
+                        warmup_paths,
+                        depth=depth,
+                        stream=False,
+                        mode=mode,
+                    )
+                maybe_sync(device)
 
                 def _esig_eval(paths_cpu: torch.Tensor) -> torch.Tensor:
                     vals = [
@@ -109,8 +93,8 @@ def benchmark(
                     _esig_eval(warmup_paths_cpu)
 
                 for repeat in range(repeats):
-                    paths_cpu = _generate_paths(
-                        batch_size=batch_size,
+                    paths_cpu = generate_paths(
+                        batch=batch_size,
                         length=length,
                         width=width,
                         dtype=dtype,
@@ -123,17 +107,20 @@ def benchmark(
                         if device.type == "cuda"
                         else paths_cpu
                     )
-                    ours, t_log = _time_call(
-                        log_signature,
+                    ours, t_log = time_call_once(
+                        lambda p: log_signature(
+                            p,
+                            depth=depth,
+                            stream=False,
+                            mode=mode,
+                        ),
                         paths,
-                        depth,
-                        False,
                         device=device,
                     )
                     log_times.append(t_log)
 
                     ours_cpu = ours.cpu()
-                    ref, t_esig = _time_call(
+                    ref, t_esig = time_call_once(
                         _esig_eval,
                         paths_cpu,
                         device=torch.device("cpu"),
@@ -261,6 +248,15 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         default=None,
         help="If set, fail when logsig_time > esig_time * factor (e.g., 1.5).",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["hall"],
+        default="hall",
+        help=(
+            "Basis to use for log_signature; esig outputs Hall coordinates, so"
+            " comparison is only valid for mode='hall'."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -271,6 +267,10 @@ def main() -> None:
     if device.type == "cuda" and not torch.cuda.is_available():
         raise SystemExit("CUDA requested but not available.")
     torch.set_grad_enabled(False)
+    mode = args.mode.lower()
+    if mode != "hall":  # pragma: no cover - defensive guard
+        raise SystemExit("Comparison with esig is only supported in Hall basis.")
+
     records = benchmark(
         lengths=args.lengths,
         widths=args.widths,
@@ -283,6 +283,7 @@ def main() -> None:
         dtype=dtype,
         device=device,
         seed=args.seed,
+        mode=mode,
     )
     if args.output_csv:
         import csv

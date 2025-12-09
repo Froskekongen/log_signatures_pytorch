@@ -4,34 +4,15 @@
 from __future__ import annotations
 
 import argparse
-import time
 from typing import Iterable, List, Sequence
 
 import torch
 
+from benchmarks.utils import generate_paths, time_call
 from log_signatures_pytorch.tensor_ops import (
     batch_mult_fused_restricted_exp,
     batch_restricted_exp,
 )
-
-
-def _maybe_sync(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-
-
-def _generate_batch_paths(
-    batch_size: int,
-    length: int,
-    width: int,
-    dtype: torch.dtype,
-    device: torch.device,
-    seed: int,
-) -> torch.Tensor:
-    g = torch.Generator(device="cpu")
-    g.manual_seed(seed)
-    increments = torch.randn(batch_size, length, width, generator=g, dtype=dtype)
-    return increments.to(device)
 
 
 def _run_batch(path_increments: torch.Tensor, depth: int) -> List[torch.Tensor]:
@@ -39,17 +20,6 @@ def _run_batch(path_increments: torch.Tensor, depth: int) -> List[torch.Tensor]:
     for step in range(1, path_increments.shape[1]):
         carry = batch_mult_fused_restricted_exp(path_increments[:, step], carry)
     return carry
-
-
-def _time_call(fn, *args, device: torch.device, warmup: int, repeats: int) -> float:
-    for _ in range(warmup):
-        fn(*args)
-    _maybe_sync(device)
-    start = time.perf_counter()
-    for _ in range(repeats):
-        fn(*args)
-    _maybe_sync(device)
-    return (time.perf_counter() - start) / repeats
 
 
 def benchmark(
@@ -67,17 +37,18 @@ def benchmark(
     header = "length batch width depth dtype device ms_per_call"
     print(header)
     for length in lengths:
-        path = _generate_batch_paths(
-            batch_size=batch_size,
+        path = generate_paths(
+            batch=batch_size,
             length=length,
             width=width,
             dtype=dtype,
             device=device,
             seed=seed + length,
+            cumulative=False,
         )
         fn = _run_batch
         args = (path, depth)
-        elapsed = _time_call(
+        elapsed = time_call(
             fn,
             *args,
             device=device,
