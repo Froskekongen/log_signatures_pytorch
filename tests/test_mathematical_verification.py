@@ -1,11 +1,9 @@
 import pytest
 import torch
 
-from log_signatures_pytorch.basis import (
-    hall_basis,
-    logsigdim,
+from log_signatures_pytorch.hall_projection import hall_basis, logsigdim, logsigkeys
+from log_signatures_pytorch.lyndon_words import (
     logsigdim_words,
-    logsigkeys,
     logsigkeys_words,
 )
 from log_signatures_pytorch.log_signature import log_signature

@@ -6,7 +6,7 @@ import torch
 esig = pytest.importorskip("esig")
 
 from log_signatures_pytorch.log_signature import log_signature
-from log_signatures_pytorch.basis import logsigkeys, logsigdim
+from log_signatures_pytorch.hall_projection import logsigkeys, logsigdim
 
 
 def _esig_keys(width: int, depth: int) -> list[str]:

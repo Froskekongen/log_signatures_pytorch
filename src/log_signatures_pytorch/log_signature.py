@@ -17,7 +17,8 @@ from typing import Optional, Tuple
 import torch
 from torch import Tensor
 
-from .basis import lyndon_words, logsigdim, logsigdim_words
+from .hall_projection import logsigdim
+from .lyndon_words import lyndon_words, logsigdim_words
 from .hall_bch import HallBCH, supports_depth
 from .hall_projection import get_hall_projector
 from .signature import signature

@@ -11,8 +11,9 @@ from functools import lru_cache
 
 import torch
 
-from .basis import hall_basis, logsigdim
 from .hall_projection import (
+    hall_basis,
+    logsigdim,
     _hall_basis_tensors,
     _hall_element_depth,
     get_hall_projector,

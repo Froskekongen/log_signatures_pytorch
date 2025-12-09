@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Core kernels live in `src/log_signatures_pytorch/`, where `signature.py` and `log_signature.py` expose the public API, `basis.py` and `hall_projection.py` cover Hall-basis math, and `tensor_ops.py` hosts shared Torch tensor utilities. Tests sit in `tests/`, grouped by property-based specs (`test_log_signature_properties.py`) and integration checks (`test_log_signature.py`, `test_mathematical_verification.py`). `main.py` is a thin smoke-test entry point, while `pyproject.toml` and `uv.lock` define dependencies (PyTorch, NumPy, SciPy plus dev extras like pytest/esig).
+Core kernels live in `src/log_signatures_pytorch/`, where `signature.py` and `log_signature.py` expose the public API, `hall_projection.py` covers Hall-basis generation/projection, and `lyndon_words.py` hosts the Lyndon (\"words\") basis utilities. Shared Torch tensor utilities live in `tensor_ops.py`. Tests sit in `tests/`, grouped by property-based specs (`test_log_signature_properties.py`) and integration checks (`test_log_signature.py`, `test_mathematical_verification.py`). `main.py` is a thin smoke-test entry point, while `pyproject.toml` and `uv.lock` define dependencies (PyTorch, NumPy, SciPy plus dev extras like pytest/esig).
 
 ## Build, Test, and Development Commands
 - `uv venv && source .venv/bin/activate` — create/activate the local virtualenv (Python 3.13+).

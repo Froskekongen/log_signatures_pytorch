@@ -1,7 +1,8 @@
 import torch
 
-from log_signatures_pytorch.basis import hall_basis, logsigdim
 from log_signatures_pytorch.hall_projection import (
+    hall_basis,
+    logsigdim,
     _hall_basis_tensors,
     _hall_element_depth,
     get_hall_projector,

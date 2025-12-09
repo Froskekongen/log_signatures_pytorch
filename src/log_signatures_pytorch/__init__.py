@@ -35,14 +35,8 @@ torch.Size([1, 3])
 3
 """
 
-from .basis import (
-    hall_basis,
-    logsigdim,
-    logsigkeys,
-    logsigdim_words,
-    logsigkeys_words,
-    lyndon_words,
-)
+from .hall_projection import hall_basis, logsigdim, logsigkeys
+from .lyndon_words import lyndon_words, logsigdim_words, logsigkeys_words
 from .log_signature import log_signature
 from .signature import signature
 

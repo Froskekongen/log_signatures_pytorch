@@ -1,13 +1,111 @@
 from __future__ import annotations
 
+"""Hall basis generation and projection utilities.
+
+This module contains the Hall basis construction, string/length helpers, and
+the projection machinery that maps tensor-algebra log-signatures onto Hall
+coordinates. It also exposes a cached :class:`HallProjector` used throughout
+the codebase.
+"""
+
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, List, Tuple, Union
 
 import torch
 
-from .basis import HallBasisElement, hall_basis
 from .tensor_ops import lie_brackets
+
+# Hall basis elements are integers (letters) or nested Lie brackets encoded as
+# tuples (left, right).
+HallBasisElement = Union[int, Tuple["HallBasisElement", "HallBasisElement"]]
+
+
+def _hall_basis_key(elem: HallBasisElement):
+    if isinstance(elem, int):
+        return (0, elem)
+    left, right = elem
+    return (1, _hall_basis_key(left), _hall_basis_key(right))
+
+
+def _hall_is_valid_pair(left: HallBasisElement, right: HallBasisElement) -> bool:
+    """Check Hall ordering constraints for a candidate bracket (left, right)."""
+    if _hall_basis_key(left) >= _hall_basis_key(right):
+        return False
+    if isinstance(right, tuple):
+        right_left, _ = right
+        if _hall_basis_key(right_left) > _hall_basis_key(left):
+            return False
+    return True
+
+
+def hall_basis(width: int, depth: int) -> List[HallBasisElement]:
+    """Return Hall basis elements up to ``depth`` over an alphabet of size ``width``.
+
+    The Hall basis is a particular basis for the free Lie algebra. Elements are
+    ordered first by depth, then lexicographically by the recursive Hall ordering.
+    Degree-1 elements are labeled 1..width and higher degrees are nested tuples
+    representing Lie brackets.
+
+    Parameters
+    ----------
+    width : int
+        Size of the alphabet (path dimension). Must be >= 1.
+    depth : int
+        Maximum depth to generate basis elements. Must be >= 1.
+
+    Returns
+    -------
+    List[HallBasisElement]
+        Hall basis elements, where each element is either an integer (degree 1)
+        or a nested tuple representing a Lie bracket (higher degrees).
+
+    Raises
+    ------
+    ValueError
+        If ``width < 1`` or ``depth < 1``.
+    """
+    if width < 1:
+        raise ValueError("width must be >= 1")
+    if depth < 1:
+        raise ValueError("depth must be >= 1")
+
+    depth_groups: Dict[int, List[HallBasisElement]] = {}
+    letters = list(range(1, width + 1))
+    depth_groups[1] = letters
+    basis: List[HallBasisElement] = list(letters)
+
+    for current_depth in range(2, depth + 1):
+        candidates: List[HallBasisElement] = []
+        for left_depth in range(1, current_depth):
+            right_depth = current_depth - left_depth
+            for left in depth_groups[left_depth]:
+                for right in depth_groups[right_depth]:
+                    if _hall_is_valid_pair(left, right):
+                        candidates.append((left, right))
+        candidates.sort(key=_hall_basis_key)
+        depth_groups[current_depth] = candidates
+        basis.extend(candidates)
+
+    return basis
+
+
+def logsigdim(width: int, depth: int) -> int:
+    """Dimension of the truncated log-signature in the Hall basis."""
+
+    return len(hall_basis(width, depth))
+
+
+def logsigkeys(width: int, depth: int) -> List[str]:
+    """Human-readable labels for Hall basis elements (esig-compatible)."""
+
+    def _to_str(elem: HallBasisElement) -> str:
+        if isinstance(elem, int):
+            return str(elem)
+        left, right = elem
+        return f"[{_to_str(left)},{_to_str(right)}]"
+
+    return [_to_str(elem) for elem in hall_basis(width, depth)]
 
 
 @lru_cache(maxsize=None)
