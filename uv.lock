@@ -283,7 +283,6 @@ name = "log-signatures-pytorch"
 version = "0.1.5"
 source = { editable = "." }
 dependencies = [
-    { name = "sympy" },
     { name = "torch" },
 ]
 
@@ -304,10 +303,7 @@ docs = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "sympy", specifier = ">=1.14.0" },
-    { name = "torch", specifier = ">=2.9.1" },
-]
+requires-dist = [{ name = "torch", specifier = ">=2.9.1" }]
 
 [package.metadata.requires-dev]
 dev = [

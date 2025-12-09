@@ -1,8 +1,8 @@
-"""Minimal demo for computing log signatures on a toy path.
+"""Minimal demo for computing signatures or log-signatures on a toy path.
 
 The script keeps the dependencies small and works on CPU or GPU. Use it to
 verify the library is installed correctly and to see the expected shapes
-returned by the ``signature`` function.
+returned by the chosen function.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import Literal
 import torch
 
 from log_signatures_pytorch.signature import signature
+from log_signatures_pytorch.log_signature import log_signature
 
 
 GpuMode = Literal["auto", "on", "off"]
@@ -44,6 +45,12 @@ def parse_args() -> argparse.Namespace:
         help="Use the GPU-optimized parallel implementation ('auto' picks CUDA when available).",
     )
     parser.add_argument(
+        "--target",
+        choices=["signature", "log_signature"],
+        default="log_signature",
+        help="Compute either the signature or the log-signature (default).",
+    )
+    parser.add_argument(
         "--device",
         default="cpu",
         help="Device to run on (e.g. 'cpu', 'cuda', or 'cuda:0').",
@@ -56,9 +63,8 @@ def resolve_gpu_mode(mode: GpuMode) -> bool:
         return True
     if mode == "off":
         return False
-    # Default to the GPU-optimized path because it is also the preferred code
-    # path for CPU execution in this repository.
-    return True
+    # Auto: prefer CUDA when available; otherwise use the CPU-friendly path.
+    return torch.cuda.is_available()
 
 
 def main() -> None:
@@ -68,21 +74,34 @@ def main() -> None:
         sys.exit("CUDA was requested but is not available on this machine.")
 
     device = torch.device(args.device)
-    path = torch.randn(args.length, args.dim, device=device)
+    path = torch.randn(args.length, args.dim, device=device).unsqueeze(0)
 
     gpu_optimized = resolve_gpu_mode(args.gpu_optimized)
-    sig = signature(
-        path, depth=args.depth, stream=args.stream, gpu_optimized=gpu_optimized
-    )
+    if args.target == "signature":
+        result = signature(
+            path, depth=args.depth, stream=args.stream, gpu_optimized=gpu_optimized
+        )
+        feature_count = sum(args.dim**i for i in range(1, args.depth + 1))
+    else:
+        result = log_signature(
+            path,
+            depth=args.depth,
+            stream=args.stream,
+            gpu_optimized=gpu_optimized,
+            mode="words",
+            method="default",
+        )
+        from log_signatures_pytorch.lyndon_words import logsigdim_words
 
-    feature_count = sum(args.dim**i for i in range(1, args.depth + 1))
+        feature_count = logsigdim_words(args.dim, args.depth)
+
     expected_shape = (
-        (args.length - 1, feature_count) if args.stream else (feature_count,)
+        (1, args.length - 1, feature_count) if args.stream else (1, feature_count)
     )
 
-    print(f"Path shape: {tuple(path.shape)} on {device}")
-    print(f"Signature shape: {tuple(sig.shape)} (expected {expected_shape})")
-    flat = sig.flatten()
+    print(f"Path shape (batched): {tuple(path.shape)} on {device}")
+    print(f"{args.target} shape: {tuple(result.shape)} (expected {expected_shape})")
+    flat = result.flatten()
     preview = flat[: min(8, flat.numel())]
     print("Preview:", preview.cpu().numpy())
     if gpu_optimized:

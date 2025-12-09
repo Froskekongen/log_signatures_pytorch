@@ -4,7 +4,7 @@ import torch
 roughpy = pytest.importorskip("roughpy")
 
 from log_signatures_pytorch.log_signature import log_signature
-from log_signatures_pytorch.bch_sympy import bch_coeffs
+from log_signatures_pytorch.bch_coefficients import bch_coeffs
 from log_signatures_pytorch.hall_projection import get_hall_projector
 
 

@@ -108,6 +108,26 @@ def logsigkeys(width: int, depth: int) -> List[str]:
     return [_to_str(elem) for elem in hall_basis(width, depth)]
 
 
+def _project_to_hall_basis(
+    log_sig_tensors: List[torch.Tensor], width: int, depth: int
+) -> torch.Tensor:
+    """Project log-signature tensors onto Hall basis using cached projectors."""
+    if not log_sig_tensors:
+        return torch.zeros(
+            0,
+            device=torch.device("cpu"),
+            dtype=torch.float32,  # pragma: no cover
+        )
+
+    projector = get_hall_projector(
+        width=width,
+        depth=depth,
+        device=log_sig_tensors[0].device,
+        dtype=log_sig_tensors[0].dtype,
+    )
+    return projector.project(log_sig_tensors)
+
+
 @lru_cache(maxsize=None)
 def _hall_element_depth(elem: HallBasisElement) -> int:
     if isinstance(elem, int):

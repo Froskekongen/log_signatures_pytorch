@@ -12,8 +12,6 @@ from log_signatures_pytorch.lyndon_words import (
     logsigkeys_words,
 )
 from log_signatures_pytorch.log_signature import (
-    _project_to_hall_basis,
-    _project_to_words_basis,
     _signature_to_logsignature_tensor,
     _unflatten_signature,
     log_signature,
@@ -21,7 +19,9 @@ from log_signatures_pytorch.log_signature import (
 from log_signatures_pytorch.hall_projection import (
     _hall_basis_tensors,
     _hall_element_depth,
+    _project_to_hall_basis,
 )
+from log_signatures_pytorch.lyndon_words import _project_to_words_basis
 from log_signatures_pytorch.signature import signature
 from log_signatures_pytorch.tensor_ops import batch_lie_brackets, lie_brackets
 

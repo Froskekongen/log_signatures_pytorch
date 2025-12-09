@@ -5,8 +5,9 @@ using exact rational arithmetic. It computes word -> rational coefficient mappin
 for log(prod_i exp(E_i)), where E_i are the one-letter generators (1..width),
 truncated to a given depth.
 
-This is intended for verification/offline coefficient generation, not runtime.
-Arithmetic uses Python's Fractions and concatenation; no external CAS required.
+This is intended for verification/offline coefficient generation (tests, debug),
+not runtime. Arithmetic uses Python's Fractions and concatenation; no external
+CAS is required.
 """
 
 from __future__ import annotations
@@ -100,7 +101,7 @@ def bch_coeffs(width: int, depth: int) -> CoeffMap:
 
     Examples
     --------
-    >>> from log_signatures_pytorch.bch_sympy import bch_coeffs
+    >>> from log_signatures_pytorch.bch_coefficients import bch_coeffs
     >>> from fractions import Fraction
     >>>
     >>> # BCH coefficients for width=2, depth=2

@@ -115,7 +115,6 @@ Signature outputs exclude the empty word (dimension is `sum(width**k for k=1..de
 ## Testing and verification
 
 - Run the suite: `pytest tests -q`
-- Quick smoke check: `python main.py`
 - Mathematical property checks are documented in `tests/mathematical_verification_guide.md`.
 
 ## Documentation

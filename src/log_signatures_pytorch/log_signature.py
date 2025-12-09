@@ -17,10 +17,13 @@ from typing import Optional, Tuple
 import torch
 from torch import Tensor
 
-from .hall_projection import logsigdim
-from .lyndon_words import lyndon_words, logsigdim_words
 from .hall_bch import HallBCH, supports_depth
-from .hall_projection import get_hall_projector
+from .hall_projection import _project_to_hall_basis, logsigdim
+from .lyndon_words import (
+    _project_to_words_basis,
+    lyndon_words,
+    logsigdim_words,
+)
 from .signature import signature
 from .tensor_ops import batch_tensor_product
 
@@ -34,23 +37,6 @@ def _compositions(total: int, parts: int) -> Tuple[Tuple[int, ...], ...]:
         for rest in _compositions(total - first, parts - 1):
             result.append((first, *rest))
     return tuple(result)
-
-
-def _word_tensor_index(word: Tuple[int, ...], width: int) -> int:
-    """Convert a Lyndon word to its flat tensor-algebra index (row-major)."""
-    idx = 0
-    for letter in word:
-        idx = idx * width + (letter - 1)
-    return idx
-
-
-@lru_cache(maxsize=None)
-def _words_indices(width: int, depth: int) -> Tuple[Tuple[int, ...], ...]:
-    """Cached tensor indices for Lyndon words grouped by length."""
-    grouped = [[] for _ in range(depth)]
-    for word in lyndon_words(width, depth):
-        grouped[len(word) - 1].append(_word_tensor_index(word, width))
-    return tuple(tuple(group) for group in grouped)
 
 
 def _signature_to_logsignature_tensor(
@@ -153,112 +139,12 @@ def _unflatten_signature(sig: Tensor, width: int, depth: int) -> list[Tensor]:
     return tensors
 
 
-def _project_to_hall_basis(
-    log_sig_tensors: list[Tensor], width: int, depth: int
-) -> Tensor:
-    """Project log-signature tensors onto Hall basis using cached projectors.
-
-    Projects the log-signature from tensor algebra coordinates to Hall basis
-    coordinates, which provides a more compact representation.
-
-    Parameters
-    ----------
-    log_sig_tensors : list[Tensor]
-        List of log-signature tensors in tensor algebra coordinates, where
-        entry ``k`` has shape ``(batch, width, ..., width)`` with ``k+1``
-        trailing width axes.
-    width : int
-        Path dimension (number of features).
-    depth : int
-        Truncation depth.
-
-    Returns
-    -------
-    Tensor
-        Tensor of shape ``(batch, logsigdim(width, depth))`` containing the
-        log-signature in Hall basis coordinates.
-
-    Notes
-    -----
-    This function uses cached projectors for efficiency. The projection matrices
-    are computed once and reused for subsequent calls with the same width and depth.
-    """
-    if not log_sig_tensors:
-        return torch.zeros(
-            0,
-            device=torch.device("cpu"),
-            dtype=torch.float32,  # pragma: no cover
-        )
-
-    projector = get_hall_projector(
-        width=width,
-        depth=depth,
-        device=log_sig_tensors[0].device,
-        dtype=log_sig_tensors[0].dtype,
-    )
-    return projector.project(log_sig_tensors)
-
-
-def _project_to_words_basis(
-    log_sig_tensors: list[Tensor], width: int, depth: int
-) -> Tensor:
-    """Project log-signature tensors onto the Lyndon \"words\" basis.
-
-    Parameters
-    ----------
-    log_sig_tensors : list[Tensor]
-        List where entry ``k`` has shape ``(batch, width, ..., width)`` with
-        ``k+1`` trailing width axes, representing log-signature tensors in
-        tensor-algebra coordinates.
-    width : int
-        Path dimension (alphabet size).
-    depth : int
-        Truncation depth.
-
-    Returns
-    -------
-    Tensor
-        Tensor of shape ``(batch, logsigdim_words(width, depth))`` containing
-        log-signature coordinates in the Lyndon \"words\" basis.
-
-    Notes
-    -----
-    The Lyndon basis is triangular with respect to tensor-log coordinates, so
-    each Lyndon coefficient appears exactly once; the projection is a gather
-    rather than a dense matrix multiplication.
-    """
-    if not log_sig_tensors:
-        return torch.zeros(
-            0,
-            device=torch.device("cpu"),
-            dtype=torch.float32,  # pragma: no cover
-        )
-
-    indices_by_depth = _words_indices(width, depth)
-    slices = []
-    for k, indices in enumerate(indices_by_depth, start=1):
-        if not indices:
-            continue
-        tensor = log_sig_tensors[k - 1].reshape(log_sig_tensors[k - 1].shape[0], -1)
-        gather_idx = torch.tensor(indices, device=tensor.device, dtype=torch.long)
-        slices.append(torch.index_select(tensor, dim=1, index=gather_idx))
-    if not slices:
-        # Should not happen for valid width/depth, but keep guard.
-        return torch.zeros(
-            log_sig_tensors[0].shape[0],
-            0,
-            device=log_sig_tensors[0].device,
-            dtype=log_sig_tensors[0].dtype,
-        )
-    return torch.cat(slices, dim=1)
-
-
 def _batch_log_signature(
     path: Tensor,
     depth: int,
     stream: bool = False,
     gpu_optimized: Optional[bool] = None,
-    mode: str = "hall",
+    mode: str = "words",
 ) -> Tensor:
     """Compute log-signatures via signature→log pipeline for batched paths.
 
@@ -278,7 +164,7 @@ def _batch_log_signature(
         Forwarded to :func:`signature`; defaults to GPU path when the input is on CUDA.
         Default is None.
     mode : str, optional
-        Basis for the output coordinates: ``"hall"`` (default) or ``"words"``.
+        Basis for the output coordinates: ``"words"`` (default) or ``"hall"``.
 
     Returns
     -------
@@ -492,7 +378,7 @@ def log_signature(
         )
         raise ValueError(msg)
 
-    mode = (mode or "hall").lower()
+    mode = (mode or "words").lower()
     if mode not in {"hall", "words"}:
         raise ValueError(f"Unsupported mode '{mode}'. Use 'hall' or 'words'.")
 

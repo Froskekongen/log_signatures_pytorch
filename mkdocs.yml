@@ -27,7 +27,7 @@ nav:
     - tensor_ops: api/tensor_ops.md
     - hall_projection: api/hall_projection.md
     - hall_bch: api/hall_bch.md
-    - bch_sympy: api/bch_sympy.md
+    - bch_coefficients: api/bch_coefficients.md
 
 plugins:
   - search

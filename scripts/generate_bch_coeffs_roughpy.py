@@ -12,7 +12,7 @@ from typing import Dict, Tuple
 
 import roughpy as rp
 
-from log_signatures_pytorch.bch_sympy import bch_coeffs as sympy_bch_coeffs
+from log_signatures_pytorch.bch_coefficients import bch_coeffs as sympy_bch_coeffs
 
 
 Word = Tuple[int, ...]
