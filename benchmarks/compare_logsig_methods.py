@@ -10,8 +10,9 @@ per-call wall-clock averages and speedups.
 from __future__ import annotations
 
 import argparse
+import itertools
 import math
-from typing import Iterable, List, Sequence
+from typing import List, Sequence
 
 import torch
 
@@ -43,84 +44,77 @@ def benchmark(
         header += "  bch_sprs_ms sprs_spdup"
     print(header)
     records: List[dict] = []
-    for width in widths:
-        for depth in depths:
-            bch_supported = supports_depth(depth)
-            for length in lengths:
-                for batch in batches:
-                    paths = generate_paths(
-                        batch=batch,
-                        length=length,
-                        width=width,
-                        dtype=dtype,
-                        device=device,
-                        seed=seed + length + width + depth + batch,
-                    )
-                    default_time = time_call(
-                        lambda p: log_signature(
-                            p,
-                            depth=depth,
-                            stream=stream,
-                            gpu_optimized=None,
-                            method="default",
-                            mode=mode,
-                        ),
-                        paths,
-                        device=device,
-                        repeats=repeats,
-                        warmup=warmup,
-                    )
-                    sparse_time = math.nan
-                    if bch_supported and include_sparse and mode == "hall":
-                        sparse_time = time_call(
-                            lambda p: log_signature(
-                                p,
-                                depth=depth,
-                                stream=stream,
-                                gpu_optimized=None,
-                                method="bch_sparse",
-                                mode="hall",
-                            ),
-                            paths,
-                            device=device,
-                            repeats=repeats,
-                            warmup=warmup,
-                        )
-                    sprs_speed = (
-                        default_time / sparse_time
-                        if include_sparse and bch_supported
-                        else math.nan
-                    )
-                    records.append(
-                        {
-                            "width": width,
-                            "depth": depth,
-                            "length": length,
-                            "batch": batch,
-                            "mode": mode,
-                            "stream": stream,
-                            "default_ms": default_time * 1e3,
-                            "bch_sparse_ms": sparse_time * 1e3,
-                            "sparse_speedup": sprs_speed,
-                        }
-                    )
-                    line = (
-                        f"{width:>5} {depth:>5} {length:>6} {batch:>5} "
-                        f"{mode:>6} {str(stream):>6} {_format_ms(default_time)}"
-                    )
-                    if include_sparse and mode == "hall":
-                        sprs_str = (
-                            f"{_format_ms(sparse_time)}" if bch_supported else "   n/a "
-                        )
-                        sprs_speed_str = (
-                            f"{sprs_speed:7.2f}x" if bch_supported else "  n/a "
-                        )
-                        line += f" {sprs_str} {sprs_speed_str}"
-                    print(line)
+    for width, depth, length, batch in itertools.product(
+        widths, depths, lengths, batches
+    ):
+        bch_supported = supports_depth(depth)
+        paths = generate_paths(
+            batch=batch,
+            length=length,
+            width=width,
+            dtype=dtype,
+            device=device,
+            seed=seed + length + width + depth + batch,
+        )
+        default_time = time_call(
+            lambda p: log_signature(
+                p,
+                depth=depth,
+                stream=stream,
+                gpu_optimized=None,
+                method="default",
+                mode=mode,
+            ),
+            paths,
+            device=device,
+            repeats=repeats,
+            warmup=warmup,
+        )
+        sparse_time = math.nan
+        if bch_supported and include_sparse and mode == "hall":
+            sparse_time = time_call(
+                lambda p: log_signature(
+                    p,
+                    depth=depth,
+                    stream=stream,
+                    gpu_optimized=None,
+                    method="bch_sparse",
+                    mode="hall",
+                ),
+                paths,
+                device=device,
+                repeats=repeats,
+                warmup=warmup,
+            )
+        sprs_speed = (
+            default_time / sparse_time if include_sparse and bch_supported else math.nan
+        )
+        records.append(
+            {
+                "width": width,
+                "depth": depth,
+                "length": length,
+                "batch": batch,
+                "mode": mode,
+                "stream": stream,
+                "default_ms": default_time * 1e3,
+                "bch_sparse_ms": sparse_time * 1e3,
+                "sparse_speedup": sprs_speed,
+            }
+        )
+        line = (
+            f"{width:>5} {depth:>5} {length:>6} {batch:>5} "
+            f"{mode:>6} {str(stream):>6} {_format_ms(default_time)}"
+        )
+        if include_sparse and mode == "hall":
+            sprs_str = f"{_format_ms(sparse_time)}" if bch_supported else "   n/a "
+            sprs_speed_str = f"{sprs_speed:7.2f}x" if bch_supported else "  n/a "
+            line += f" {sprs_str} {sprs_speed_str}"
+        print(line)
     return records
 
 
-def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Benchmark default log_signature vs Hall-BCH path."
     )
