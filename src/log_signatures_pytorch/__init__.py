@@ -4,8 +4,8 @@ This package provides efficient, differentiable computation of signatures and
 log-signatures for paths/streams using PyTorch. Two coordinate systems for the
 log-signature are available:
 
-- Hall basis (default)
-- Lyndon \"words\" basis (Signatory-compatible gather projection)
+- Lyndon \"words\" basis (Signatory-compatible gather projection, default)
+- Hall basis
 
 Main entry points:
 

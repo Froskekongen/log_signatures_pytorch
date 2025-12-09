@@ -6,7 +6,7 @@ Differentiable log-signature and signature kernels implemented in PyTorch with b
 
 - Batched signature and log-signature computation for tensors shaped ``(batch, length, dim)`` with optional streaming outputs at every step. For a single path, add a leading dimension via ``unsqueeze(0)``.
 - Hall-basis utilities (`hall_basis`, `logsigdim`, `logsigkeys`) plus Lyndon “words” helpers (`lyndon_words`, `logsigdim_words`, `logsigkeys_words`) for inspecting dimensions and basis labels.
-- Two log-signature coordinate systems: Hall (default) and Signatory-style “words” (Lyndon) gather projection.
+- Two log-signature coordinate systems: Signatory-style “words” (Lyndon, default) and Hall.
 - Two log-signature backends: the default signature→log path, and an incremental sparse BCH implementation for depths up to 4 (falls back otherwise).
 - The implementation of signatures is structured after keras_sig, but only focuses on pytorch.
 - Dependencies are kept minimal.
@@ -45,7 +45,7 @@ PY
 
 ```python
 import torch
-from log_signatures_pytorch import signature, log_signature, logsigdim
+from log_signatures_pytorch import signature, log_signature, logsigdim_words
 
 path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]).unsqueeze(0)
 
@@ -54,7 +54,7 @@ print(sig.shape)           # torch.Size([1, 6]) = sum(width**k for k in 1..depth
 
 log_sig = log_signature(path, depth=2)
 print(log_sig.shape)       # torch.Size([1, 3]) = logsigdim(2, 2)
-print("logsigdim:", logsigdim(2, 2))  # 3
+print("logsigdim_words:", logsigdim_words(2, 2))  # 3
 
 # Lyndon words coordinates (Signatory-style)
 log_sig_words = log_signature(path, depth=2, mode="words")
@@ -102,7 +102,7 @@ print(logsigkeys_words(width=2, depth=3))
 
 - `gpu_optimized`: defaults to True when the input tensor is on CUDA. Set False to force the CPU scan path.
 - `method`: `log_signature(..., method="bch_sparse")` uses the incremental BCH routine for depths supported by `HallBCH` (depth ≤ 4); otherwise it falls back to the default path.
-- `mode`: `log_signature(..., mode="hall"|"words")` chooses the coordinate basis. BCH currently supports `mode="hall"`; the default path supports both.
+- `mode`: `log_signature(..., mode="words"|"hall")` chooses the coordinate basis. Default is `"words"`. BCH currently requires `mode="hall"`; the default path supports both.
 
 Signature outputs exclude the empty word (dimension is `sum(width**k for k=1..depth)`); use `logsigdim(width, depth)` to size log-signature outputs.
 

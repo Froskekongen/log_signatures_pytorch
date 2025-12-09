@@ -86,13 +86,15 @@ def benchmark(
                         seed=seed + length + width + depth + batch,
                     )
                     default_time = _time_call(
-                        log_signature,
+                        lambda p: log_signature(
+                            p,
+                            depth=depth,
+                            stream=stream,
+                            gpu_optimized=None,
+                            method="default",
+                            mode="hall",
+                        ),
                         paths,
-                        depth,
-                        stream,
-                        None,
-                        None,
-                        "default",
                         device=device,
                         repeats=repeats,
                         warmup=warmup,
@@ -100,13 +102,15 @@ def benchmark(
                     sparse_time = math.nan
                     if bch_supported and include_sparse:
                         sparse_time = _time_call(
-                            log_signature,
+                            lambda p: log_signature(
+                                p,
+                                depth=depth,
+                                stream=stream,
+                                gpu_optimized=None,
+                                method="bch_sparse",
+                                mode="hall",
+                            ),
                             paths,
-                            depth,
-                            stream,
-                            None,
-                            None,
-                            "bch_sparse",
                             device=device,
                             repeats=repeats,
                             warmup=warmup,

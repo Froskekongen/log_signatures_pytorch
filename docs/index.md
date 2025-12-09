@@ -7,8 +7,8 @@ Differentiable log-signature and signature kernels implemented in PyTorch with b
 - Batched signature and log-signature computation for tensors shaped `(batch, length, dim)` with optional streaming outputs at every step. For a single path, add a leading dimension via `unsqueeze(0)`.
 - Hall-basis utilities (`hall_basis`, `logsigdim`, `logsigkeys`) for inspecting dimensions and basis labels.
 - Two log-signature coordinate systems:
-  - `mode="hall"` (default): classic Hall basis with dense projection.
-  - `mode="words"`: Signatory-style Lyndon words basis using a gather-only projection for faster CPU/GPU throughput.
+  - `mode="words"` (default): Signatory-style Lyndon words basis using a gather-only projection for faster CPU/GPU throughput.
+  - `mode="hall"`: classic Hall basis with dense projection.
 - Two computation backends: the default signature→log path, and an incremental sparse BCH implementation for depths up to 4 (falls back otherwise).
 - The implementation of signatures is structured after keras_sig, but only focuses on pytorch.
 - Dependencies are kept minimal.
@@ -19,7 +19,7 @@ Differentiable log-signature and signature kernels implemented in PyTorch with b
 
 ```python
 import torch
-from log_signatures_pytorch import signature, log_signature, logsigdim
+from log_signatures_pytorch import signature, log_signature, logsigdim_words
 
 path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]).unsqueeze(0)
 
@@ -27,8 +27,8 @@ sig = signature(path, depth=2)
 print(sig.shape)           # torch.Size([1, 6]) = sum(width**k for k in 1..depth)
 
 log_sig = log_signature(path, depth=2)
-print(log_sig.shape)       # torch.Size([1, 3]) = logsigdim(2, 2)
-print("logsigdim:", logsigdim(2, 2))  # 3
+print(log_sig.shape)       # torch.Size([1, 3]) = logsigdim_words(2, 2)
+print("logsigdim_words:", logsigdim_words(2, 2))  # 3
 
 # Lyndon (words) coordinates for comparison
 log_sig_words = log_signature(path, depth=2, mode="words")
@@ -65,7 +65,7 @@ print(basis)          # [1, 2, (1, 2)]
 keys = logsigkeys(width=2, depth=2)
 print(keys)           # ['1', '2', '[1,2]'] (matches esig format)
 
-# Lyndon words (Signatory ordering)
+# Lyndon words (Signatory ordering, default)
 from log_signatures_pytorch import lyndon_words, logsigkeys_words
 words = lyndon_words(width=2, depth=3)
 print(words)          # [(1,), (2,), (1, 2), (1, 1, 2), (1, 2, 2)]

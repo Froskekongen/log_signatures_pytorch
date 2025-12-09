@@ -3,9 +3,9 @@
 This module provides functions to compute the log-signature of a path, with
 two coordinate systems:
 
-- Hall basis (default): traditional Hall set ordering.
-- Lyndon \"words\" basis: Signatory-style ordering where each coefficient is
-  the tensor-log coefficient of a Lyndon word; projection reduces to gathers.
+- Lyndon \"words\" basis (default): Signatory-style ordering where each coefficient
+  is the tensor-log coefficient of a Lyndon word; projection reduces to gathers.
+- Hall basis: traditional Hall set ordering.
 
 Both bases represent the same free Lie algebra element; a linear change of
 basis relates their coordinates.
@@ -294,7 +294,7 @@ def _batch_log_signature(
     This is the default log-signature computation method. It works for any depth
     but may be slower than the BCH method for supported depths (depth <= 4).
     """
-    mode = (mode or "hall").lower()
+    mode = (mode or "words").lower()
     if mode not in {"hall", "words"}:
         raise ValueError(f"Unsupported mode '{mode}'. Use 'hall' or 'words'.")
     batch_size, seq_len, n_features = path.shape
@@ -403,15 +403,15 @@ def log_signature(
     stream: bool = False,
     gpu_optimized: Optional[bool] = None,
     method: str = "default",
-    mode: str = "hall",
+    mode: str = "words",
 ) -> Tensor:
     """Compute log-signatures for batched paths.
 
     The log-signature is a compressed representation of the signature. Two bases are
     supported:
 
-    - ``mode=\"hall\"`` (default): classic Hall basis
-    - ``mode=\"words\"``: Signatory-style Lyndon words basis (triangular/gather projection)
+    - ``mode=\"words\"`` (default): Signatory-style Lyndon words basis (triangular/gather projection)
+    - ``mode=\"hall\"``: classic Hall basis
 
     Parameters
     ----------
@@ -433,8 +433,8 @@ def log_signature(
         "bch_sparse" falls back to the default path automatically.
         Default is "default".
     mode : str, optional
-        Basis for the log-signature coordinates: "hall" (default) or "words"
-        (Lyndon words). "words" is only available with ``method=\"default\"``.
+        Basis for the log-signature coordinates: "words" (default) or "hall".
+        "words" is only available with ``method=\"default\"``.
 
     Returns
     -------
@@ -462,8 +462,8 @@ def log_signature(
     >>> path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]).unsqueeze(0)
     >>> log_sig = log_signature(path, depth=2)
     >>> log_sig.shape
-    torch.Size([1, 3])  # logsigdim(2, 2) = 3
-    >>> logsigdim(2, 2)
+    torch.Size([1, 3])  # logsigdim_words(2, 2) = 3
+    >>> logsigdim_words(2, 2)
     3
     >>>
     >>> # Batched paths
@@ -481,7 +481,7 @@ def log_signature(
     torch.Size([1, 2, 3])  # (batch, steps, logsigdim)
     >>>
     >>> # Using BCH method (faster for depth <= 4)
-    >>> log_sig_bch = log_signature(path, depth=2, method="bch_sparse")
+    >>> log_sig_bch = log_signature(path, depth=2, method="bch_sparse", mode="hall")
     >>> log_sig_bch.shape
     torch.Size([1, 3])
     """

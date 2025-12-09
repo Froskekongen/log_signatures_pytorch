@@ -26,7 +26,7 @@ def test_log_signature_matches_esig_single_path(depth: int) -> None:
     width = 2
     length = random.randint(10, 30)
     path = _random_path(length, width, torch.float64)
-    ours = log_signature(path.unsqueeze(0), depth=depth).detach()
+    ours = log_signature(path.unsqueeze(0), depth=depth, mode="hall").detach()
     esig_result = torch.tensor(
         esig.stream2logsig(path.numpy(), depth), dtype=ours.dtype
     ).unsqueeze(0)
@@ -53,7 +53,7 @@ def test_depth4_batched_matches_esig_width3() -> None:
     paths = torch.stack(
         [_random_path(length, width, torch.float64) for _ in range(batch)], dim=0
     )
-    ours = log_signature(paths, depth=depth).detach()
+    ours = log_signature(paths, depth=depth, mode="hall").detach()
     expected = torch.stack(
         [
             torch.tensor(
@@ -78,7 +78,7 @@ def test_batched_log_signature_matches_esig(depth: int) -> None:
         [_random_path(length, width, torch.float64) for _ in range(batch)],
         dim=0,
     )
-    ours = log_signature(paths, depth=depth).detach()
+    ours = log_signature(paths, depth=depth, mode="hall").detach()
     expected = torch.stack(
         [
             torch.tensor(
