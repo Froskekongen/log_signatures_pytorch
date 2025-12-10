@@ -24,6 +24,7 @@ nav:
     - signature: api/signature.md
     - log_signature: api/log_signature.md
     - basis: api/basis.md
+    - lyndon_words: api/lyndon_words.md
     - tensor_ops: api/tensor_ops.md
     - hall_projection: api/hall_projection.md
     - hall_bch: api/hall_bch.md
