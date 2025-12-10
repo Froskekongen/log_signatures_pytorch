@@ -4,6 +4,7 @@ import torch
 from torch import Tensor
 
 from .tensor_ops import (
+    batch_tensor_product,
     batch_mult_fused_restricted_exp,
     batch_restricted_exp,
     batch_sequence_tensor_product,
@@ -89,6 +90,137 @@ def signature(
     if gpu_optimized:
         return _batch_signature_gpu(path, depth=depth, stream=stream)
     return _batch_signature(path, depth=depth, stream=stream)
+
+
+def _signature_level_sizes(width: int, depth: int) -> list[int]:
+    return [width**k for k in range(1, depth + 1)]
+
+
+def _unflatten_stream_signature(stream_sig: Tensor, width: int, depth: int) -> list[Tensor]:
+    batch, steps, _ = stream_sig.shape
+    sizes = _signature_level_sizes(width, depth)
+    levels: list[Tensor] = []
+    offset = 0
+    for idx, size in enumerate(sizes):
+        chunk = stream_sig[:, :, offset : offset + size]
+        shape = (batch, steps) + (width,) * (idx + 1)
+        levels.append(chunk.reshape(*shape))
+        offset += size
+    return levels
+
+
+def _signature_inverse(levels: list[Tensor]) -> list[Tensor]:
+    """Inverse of a truncated signature via Chen's recursion."""
+    inverse: list[Tensor] = []
+    for depth_index, level in enumerate(levels):
+        current = -level
+        for i in range(depth_index):
+            current = current - batch_tensor_product(levels[i], inverse[depth_index - i - 1])
+        inverse.append(current)
+    return inverse
+
+
+def _signature_multiply(left: list[Tensor], right: list[Tensor]) -> list[Tensor]:
+    """Chen product of two truncated signatures."""
+    if len(left) != len(right):
+        raise ValueError("Signatures must have the same depth for multiplication.")
+
+    product: list[Tensor] = []
+    for depth_index in range(len(left)):
+        current = left[depth_index] + right[depth_index]
+        for i in range(depth_index):
+            current = current + batch_tensor_product(left[i], right[depth_index - i - 1])
+        product.append(current)
+    return product
+
+
+def windowed_signature(
+    path: Tensor,
+    depth: int,
+    window_size: int,
+    hop_size: int,
+    gpu_optimized: Optional[bool] = None,
+) -> Tensor:
+    """Sliding-window signatures using Chen's identity.
+
+    Each window signature is computed from streaming prefix signatures:
+    ``Sig(path[s:e]) = Sig(path[:s])^{-1} ⊗ Sig(path[:e])`` where ``e = s + window_size - 1``.
+
+    Parameters
+    ----------
+    path : Tensor
+        Tensor of shape ``(batch, length, dim)`` representing batched paths.
+    depth : int
+        Maximum depth to truncate signature computation.
+    window_size : int
+        Number of path points per window.
+    hop_size : int
+        Step between consecutive window starts (``>=1``).
+    gpu_optimized : bool, optional
+        Forwarded to :func:`signature` for CPU/GPU selection.
+
+    Returns
+    -------
+    Tensor
+        Tensor of shape ``(batch, num_windows, dim + dim² + ... + dim^depth)``
+        containing the signature of each window, flattened level-wise.
+
+    Raises
+    ------
+    ValueError
+        If ``path`` is not three-dimensional or if windowing parameters are invalid.
+    """
+    if path.ndim != 3:
+        msg = (
+            f"Path must be of shape (batch, path_length, path_dim); got {path.shape}. "
+            "Wrap a single path with path.unsqueeze(0)."
+        )
+        raise ValueError(msg)
+
+    batch_size, seq_len, width = path.shape
+
+    if window_size < 2:
+        raise ValueError("window_size must be at least 2 to form non-empty increments.")
+    if hop_size < 1:
+        raise ValueError("hop_size must be positive.")
+    if seq_len < window_size:
+        raise ValueError("window_size cannot exceed the path length.")
+
+    num_windows = 1 + (seq_len - window_size) // hop_size
+
+    stream = signature(path, depth=depth, stream=True, gpu_optimized=gpu_optimized)
+
+    prefix_levels = _unflatten_stream_signature(stream, width=width, depth=depth)
+    device = path.device
+    dtype = path.dtype
+
+    # Insert the identity signature at time 0 (all higher levels zero).
+    for idx, level in enumerate(prefix_levels):
+        zeros_shape = (batch_size, 1) + (width,) * (idx + 1)
+        prefix_levels[idx] = torch.cat(
+            [torch.zeros(zeros_shape, device=device, dtype=dtype), level], dim=1
+        )
+
+    start_indices = torch.arange(num_windows, device=device) * hop_size
+    end_indices = start_indices + window_size - 1
+
+    # Gather start/end signatures for all windows and merge (batch, window) into a single axis.
+    start_levels: list[Tensor] = []
+    end_levels: list[Tensor] = []
+    for level in prefix_levels:
+        start_levels.append(level[:, start_indices, ...].reshape(-1, *level.shape[2:]))
+        end_levels.append(level[:, end_indices, ...].reshape(-1, *level.shape[2:]))
+
+    inv_start = _signature_inverse(start_levels)
+    window_levels = _signature_multiply(inv_start, end_levels)
+
+    # Reshape back to (batch, num_windows, ...) and flatten level blocks.
+    flattened = []
+    for idx, level in enumerate(window_levels):
+        reshaped = level.reshape(batch_size, num_windows, -1)
+        flattened.append(reshaped)
+
+    return torch.cat(flattened, dim=2)
 
 
 def _batch_signature(

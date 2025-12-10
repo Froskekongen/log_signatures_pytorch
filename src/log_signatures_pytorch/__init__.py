@@ -38,10 +38,11 @@ torch.Size([1, 3])
 from .hall_projection import hall_basis, logsigdim, logsigkeys
 from .lyndon_words import lyndon_words, logsigdim_words, logsigkeys_words
 from .log_signature import log_signature
-from .signature import signature
+from .signature import signature, windowed_signature
 
 __all__ = [
     "signature",
+    "windowed_signature",
     "log_signature",
     "hall_basis",
     "logsigdim",
