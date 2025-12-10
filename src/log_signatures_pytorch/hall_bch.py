@@ -11,12 +11,16 @@ from functools import lru_cache
 
 import torch
 
-from .basis import hall_basis, logsigdim
-from .hall_projection import _basis_tensors, _element_depth, get_hall_projector
+from .hall_projection import (
+    hall_basis,
+    logsigdim,
+    _hall_basis_tensors,
+    _hall_element_depth,
+    get_hall_projector,
+)
 from .tensor_ops import lie_brackets
 
 
-@lru_cache(maxsize=None)
 def _structure_constants(width: int, depth: int) -> torch.Tensor:
     """Pre-compute [e_i, e_j] expansion in the Hall basis.
 
@@ -39,8 +43,8 @@ def _structure_constants(width: int, depth: int) -> torch.Tensor:
 
     Notes
     -----
-    This function is cached to avoid recomputing structure constants for the
-    same width and depth combination.
+    Intentionally **not** cached to avoid holding a dense ``dim^3`` tensor in
+    memory. Callers should cache downstream sparse representations instead.
     """
     basis = hall_basis(width, depth)
     dim = len(basis)
@@ -51,7 +55,7 @@ def _structure_constants(width: int, depth: int) -> torch.Tensor:
         device=torch.device("cpu"),
         dtype=torch.float64,
     )
-    basis_tensors = _basis_tensors(width, depth)
+    basis_tensors = _hall_basis_tensors(width, depth)
 
     zeros_template = [
         torch.zeros((1, *([width] * current_depth)), dtype=torch.float64)
@@ -59,10 +63,10 @@ def _structure_constants(width: int, depth: int) -> torch.Tensor:
     ]
 
     for i, elem_i in enumerate(basis):
-        depth_i = _element_depth(elem_i)
+        depth_i = _hall_element_depth(elem_i)
         tensor_i = basis_tensors[elem_i]
         for j, elem_j in enumerate(basis):
-            total_depth = depth_i + _element_depth(elem_j)
+            total_depth = depth_i + _hall_element_depth(elem_j)
             if total_depth > depth:
                 continue
             bracket_tensor = lie_brackets(tensor_i, basis_tensors[elem_j])
@@ -140,33 +144,6 @@ class HallBCH:
         self._sparse_vals = sparse_vals.to(device=device, dtype=dtype)
         self.device = device
         self.dtype = dtype
-
-    def zero(self, batch_size: int) -> torch.Tensor:
-        """Create a zero log-signature in Hall coordinates.
-
-        Parameters
-        ----------
-        batch_size : int
-            Batch size for the output tensor.
-
-        Returns
-        -------
-        torch.Tensor
-            Tensor of shape ``(batch_size, self.dim)`` filled with zeros.
-
-        Examples
-        --------
-        >>> import torch
-        >>> from log_signatures_pytorch.hall_bch import HallBCH
-        >>>
-        >>> bch = HallBCH(width=2, depth=2, device=torch.device("cpu"), dtype=torch.float32)
-        >>> zero = bch.zero(batch_size=3)
-        >>> zero.shape
-        torch.Size([3, 3])
-        >>> torch.allclose(zero, torch.zeros(3, 3))
-        True
-        """
-        return torch.zeros(batch_size, self.dim, device=self.device, dtype=self.dtype)
 
     def increment_to_hall(self, delta: torch.Tensor) -> torch.Tensor:
         """Embed path increment (batch, width) into Hall coordinates.
@@ -316,7 +293,7 @@ class HallBCH:
         return z
 
 
-def supports_depth(depth: int) -> bool:
+def sparse_bch_supports_depth(depth: int) -> bool:
     """Return True if the BCH truncation is implemented for this depth.
 
     Checks whether the sparse Hall-BCH method supports the given depth.
@@ -331,16 +308,5 @@ def supports_depth(depth: int) -> bool:
     -------
     bool
         True if depth <= 4, False otherwise.
-
-    Examples
-    --------
-    >>> from log_signatures_pytorch.hall_bch import supports_depth
-    >>>
-    >>> supports_depth(2)
-    True
-    >>> supports_depth(4)
-    True
-    >>> supports_depth(5)
-    False
     """
     return depth <= 4

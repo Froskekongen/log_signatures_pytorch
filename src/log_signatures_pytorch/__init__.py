@@ -1,15 +1,20 @@
-"""Log-signature computation for PyTorch.
+"""Log- and signature computation for PyTorch (Hall and Lyndon bases).
 
 This package provides efficient, differentiable computation of signatures and
-log-signatures for paths/streams using PyTorch.
+log-signatures for paths/streams using PyTorch. Two coordinate systems for the
+log-signature are available:
 
-The main entry points are:
+- Lyndon \"words\" basis (Signatory-compatible gather projection, default)
+- Hall basis
+
+Main entry points:
 
 - :func:`signature`: Compute the signature of batched paths
-- :func:`log_signature`: Compute the log-signature of batched paths
+- :func:`log_signature`: Compute the log-signature of batched paths (Hall or words)
 - :func:`hall_basis`: Generate Hall basis elements
-- :func:`logsigdim`: Get the dimension of the log-signature
-- :func:`logsigkeys`: Get human-readable labels for Hall basis elements
+- :func:`lyndon_words`: Generate Lyndon words up to a depth
+- :func:`logsigdim` / :func:`logsigdim_words`: Dimension helpers
+- :func:`logsigkeys` / :func:`logsigkeys_words`: Human-readable labels
 
 Examples
 --------
@@ -30,14 +35,20 @@ torch.Size([1, 3])
 3
 """
 
-from .basis import hall_basis, logsigdim, logsigkeys
-from .log_signature import log_signature
-from .signature import signature
+from .hall_projection import hall_basis, logsigdim, logsigkeys
+from .lyndon_words import lyndon_words, logsigdim_words, logsigkeys_words
+from .log_signature import log_signature, windowed_log_signature
+from .signature import signature, windowed_signature
 
 __all__ = [
     "signature",
+    "windowed_signature",
     "log_signature",
+    "windowed_log_signature",
     "hall_basis",
     "logsigdim",
     "logsigkeys",
+    "logsigdim_words",
+    "logsigkeys_words",
+    "lyndon_words",
 ]

@@ -1,43 +1,159 @@
 from __future__ import annotations
 
+"""Hall basis generation and projection utilities.
+
+This module contains the Hall basis construction, string/length helpers, and
+the projection machinery that maps tensor-algebra log-signatures onto Hall
+coordinates. It also exposes a cached :class:`HallProjector` used throughout
+the codebase.
+"""
+
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, List, Tuple, Union
 
 import torch
 
-from .basis import hall_basis
 from .tensor_ops import lie_brackets
 
-BasisElement = Union[int, Tuple["BasisElement", "BasisElement"]]
+# Hall basis elements are integers (letters) or nested Lie brackets encoded as
+# tuples (left, right).
+HallBasisElement = Union[int, Tuple["HallBasisElement", "HallBasisElement"]]
+
+
+def _hall_basis_key(elem: HallBasisElement):
+    if isinstance(elem, int):
+        return (0, elem)
+    left, right = elem
+    return (1, _hall_basis_key(left), _hall_basis_key(right))
+
+
+def _hall_is_valid_pair(left: HallBasisElement, right: HallBasisElement) -> bool:
+    """Check Hall ordering constraints for a candidate bracket (left, right)."""
+    if _hall_basis_key(left) >= _hall_basis_key(right):
+        return False
+    if isinstance(right, tuple):
+        right_left, _ = right
+        if _hall_basis_key(right_left) > _hall_basis_key(left):
+            return False
+    return True
+
+
+def hall_basis(width: int, depth: int) -> List[HallBasisElement]:
+    """Return Hall basis elements up to ``depth`` over an alphabet of size ``width``.
+
+    The Hall basis is a particular basis for the free Lie algebra. Elements are
+    ordered first by depth, then lexicographically by the recursive Hall ordering.
+    Degree-1 elements are labeled 1..width and higher degrees are nested tuples
+    representing Lie brackets.
+
+    Parameters
+    ----------
+    width : int
+        Size of the alphabet (path dimension). Must be >= 1.
+    depth : int
+        Maximum depth to generate basis elements. Must be >= 1.
+
+    Returns
+    -------
+    List[HallBasisElement]
+        Hall basis elements, where each element is either an integer (degree 1)
+        or a nested tuple representing a Lie bracket (higher degrees).
+
+    Raises
+    ------
+    ValueError
+        If ``width < 1`` or ``depth < 1``.
+    """
+    if width < 1:
+        raise ValueError("width must be >= 1")
+    if depth < 1:
+        raise ValueError("depth must be >= 1")
+
+    depth_groups: Dict[int, List[HallBasisElement]] = {}
+    letters = list(range(1, width + 1))
+    depth_groups[1] = letters
+    basis: List[HallBasisElement] = list(letters)
+
+    for current_depth in range(2, depth + 1):
+        candidates: List[HallBasisElement] = []
+        for left_depth in range(1, current_depth):
+            right_depth = current_depth - left_depth
+            for left in depth_groups[left_depth]:
+                for right in depth_groups[right_depth]:
+                    if _hall_is_valid_pair(left, right):
+                        candidates.append((left, right))
+        candidates.sort(key=_hall_basis_key)
+        depth_groups[current_depth] = candidates
+        basis.extend(candidates)
+
+    return basis
+
+
+def logsigdim(width: int, depth: int) -> int:
+    """Dimension of the truncated log-signature in the Hall basis."""
+
+    return len(hall_basis(width, depth))
+
+
+def logsigkeys(width: int, depth: int) -> List[str]:
+    """Human-readable labels for Hall basis elements (esig-compatible)."""
+
+    def _to_str(elem: HallBasisElement) -> str:
+        if isinstance(elem, int):
+            return str(elem)
+        left, right = elem
+        return f"[{_to_str(left)},{_to_str(right)}]"
+
+    return [_to_str(elem) for elem in hall_basis(width, depth)]
+
+
+def _project_to_hall_basis(
+    log_sig_tensors: List[torch.Tensor], width: int, depth: int
+) -> torch.Tensor:
+    """Project log-signature tensors onto Hall basis using cached projectors."""
+    if not log_sig_tensors:
+        return torch.zeros(
+            0,
+            device=torch.device("cpu"),
+            dtype=torch.float32,  # pragma: no cover
+        )
+
+    projector = get_hall_projector(
+        width=width,
+        depth=depth,
+        device=log_sig_tensors[0].device,
+        dtype=log_sig_tensors[0].dtype,
+    )
+    return projector.project(log_sig_tensors)
 
 
 @lru_cache(maxsize=None)
-def _element_depth(elem: BasisElement) -> int:
+def _hall_element_depth(elem: HallBasisElement) -> int:
     if isinstance(elem, int):
         return 1
     left, right = elem
-    return _element_depth(left) + _element_depth(right)
+    return _hall_element_depth(left) + _hall_element_depth(right)
 
 
 @lru_cache(maxsize=None)
-def _basis_with_depths(
+def _hall_basis_with_depths(
     width: int, depth: int
-) -> Tuple[Tuple[BasisElement, ...], Dict[int, Tuple[BasisElement, ...]]]:
+) -> Tuple[Tuple[HallBasisElement, ...], Dict[int, Tuple[HallBasisElement, ...]]]:
     basis_tuple = tuple(hall_basis(width, depth))
-    depth_map: Dict[int, List[BasisElement]] = {}
+    depth_map: Dict[int, List[HallBasisElement]] = {}
     for elem in basis_tuple:
-        elem_depth = _element_depth(elem)
+        elem_depth = _hall_element_depth(elem)
         depth_map.setdefault(elem_depth, []).append(elem)
     return basis_tuple, {k: tuple(v) for k, v in depth_map.items()}
 
 
 @lru_cache(maxsize=None)
-def _basis_tensors(width: int, depth: int) -> Dict[BasisElement, torch.Tensor]:
-    basis, _ = _basis_with_depths(width, depth)
-    cache: Dict[BasisElement, torch.Tensor] = {}
+def _hall_basis_tensors(width: int, depth: int) -> Dict[HallBasisElement, torch.Tensor]:
+    basis, _ = _hall_basis_with_depths(width, depth)
+    cache: Dict[HallBasisElement, torch.Tensor] = {}
 
-    def build(elem: BasisElement) -> torch.Tensor:
+    def build(elem: HallBasisElement) -> torch.Tensor:
         if elem in cache:
             return cache[elem]
         if isinstance(elem, int):
@@ -55,9 +171,9 @@ def _basis_tensors(width: int, depth: int) -> Dict[BasisElement, torch.Tensor]:
 
 
 @lru_cache(maxsize=None)
-def _projection_matrices(width: int, depth: int) -> Dict[int, torch.Tensor]:
-    _, grouped = _basis_with_depths(width, depth)
-    tensors = _basis_tensors(width, depth)
+def _hall_projection_matrices(width: int, depth: int) -> Dict[int, torch.Tensor]:
+    _, grouped = _hall_basis_with_depths(width, depth)
+    tensors = _hall_basis_tensors(width, depth)
     matrices: Dict[int, torch.Tensor] = {}
 
     for current_depth in range(1, depth + 1):
@@ -119,7 +235,7 @@ class HallProjector:
     ... ]
     >>> result = projector.project(log_sig_tensors)
     >>> result.shape
-    torch.Size([1, 3])  # logsigdim(2, 2) = 3
+    torch.Size([1, 3])
     """
 
     width: int
@@ -128,7 +244,7 @@ class HallProjector:
     dtype: torch.dtype
 
     def __post_init__(self) -> None:
-        basis, grouped = _basis_with_depths(self.width, self.depth)
+        basis, grouped = _hall_basis_with_depths(self.width, self.depth)
         self._basis = list(basis)
         self._depth_offsets: Dict[int, Tuple[int, int]] = {}
         offset = 0
@@ -136,7 +252,7 @@ class HallProjector:
             count = len(grouped.get(d, ()))
             self._depth_offsets[d] = (offset, offset + count)
             offset += count
-        base_mats = _projection_matrices(self.width, self.depth)
+        base_mats = _hall_projection_matrices(self.width, self.depth)
         self._matrices: Dict[int, torch.Tensor] = {
             depth: mat.to(device=self.device, dtype=self.dtype)
             for depth, mat in base_mats.items()
@@ -196,6 +312,7 @@ class HallProjector:
             return torch.zeros(batch, 0, device=self.device, dtype=self.dtype)
 
         return torch.cat(coeffs, dim=1)
+
 
 _PROJECTOR_CACHE: Dict[Tuple[int, int, torch.device, torch.dtype], HallProjector] = {}
 

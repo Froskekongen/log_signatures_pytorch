@@ -4,7 +4,7 @@ import torch
 roughpy = pytest.importorskip("roughpy")
 
 from log_signatures_pytorch.log_signature import log_signature
-from log_signatures_pytorch.bch_sympy import bch_coeffs
+from log_signatures_pytorch.bch_coefficients import bch_coeffs
 from log_signatures_pytorch.hall_projection import get_hall_projector
 
 
@@ -66,7 +66,7 @@ def test_bch_sparse_matches_roughpy(depth: int) -> None:
     torch.manual_seed(0)
     width = 3
     path = torch.randn(1, 3, width, dtype=torch.float64)
-    ours = log_signature(path, depth=depth, method="bch_sparse")
+    ours = log_signature(path, depth=depth, method="bch_sparse", mode="hall")
     ref = free_tensor_logsig(path, depth=depth)
     torch.testing.assert_close(ours, ref, atol=1e-8, rtol=1e-8)
 

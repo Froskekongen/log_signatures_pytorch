@@ -2,7 +2,7 @@
 
 This document outlines the mathematical properties that should hold for each function in the log-signature implementation. Treat it as a checklist for analytical reasoning and targeted tests (e.g., pytest/property checks), not as an LLM prompt.
 
-## 1. Hall Basis Generation (`src/log_signatures_pytorch/basis.py`)
+## 1. Hall Basis Generation (`src/log_signatures_pytorch/hall_projection.py`)
 
 ### Functions to Verify:
 - `hall_basis(width, depth)`: Generates Hall basis elements

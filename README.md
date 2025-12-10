@@ -5,7 +5,9 @@ Differentiable log-signature and signature kernels implemented in PyTorch with b
 ## What you'll find
 
 - Batched signature and log-signature computation for tensors shaped ``(batch, length, dim)`` with optional streaming outputs at every step. For a single path, add a leading dimension via ``unsqueeze(0)``.
-- Hall-basis utilities (`hall_basis`, `logsigdim`, `logsigkeys`) for inspecting dimensions and basis labels.
+- Sliding-window signatures and log-signatures that reuse streamed prefixes (Chen identity) instead of re-computing each window independently.
+- Hall-basis utilities (`hall_basis`, `logsigdim`, `logsigkeys`) plus Lyndon “words” helpers (`lyndon_words`, `logsigdim_words`, `logsigkeys_words`) for inspecting dimensions and basis labels.
+- Two log-signature coordinate systems: Signatory-style “words” (Lyndon, default) and Hall.
 - Two log-signature backends: the default signature→log path, and an incremental sparse BCH implementation for depths up to 4 (falls back otherwise).
 - The implementation of signatures is structured after keras_sig, but only focuses on pytorch.
 - Dependencies are kept minimal.
@@ -44,7 +46,7 @@ PY
 
 ```python
 import torch
-from log_signatures_pytorch import signature, log_signature, logsigdim
+from log_signatures_pytorch import signature, log_signature, logsigdim_words
 
 path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]).unsqueeze(0)
 
@@ -53,7 +55,11 @@ print(sig.shape)           # torch.Size([1, 6]) = sum(width**k for k in 1..depth
 
 log_sig = log_signature(path, depth=2)
 print(log_sig.shape)       # torch.Size([1, 3]) = logsigdim(2, 2)
-print("logsigdim:", logsigdim(2, 2))  # 3
+print("logsigdim_words:", logsigdim_words(2, 2))  # 3
+
+# Lyndon words coordinates (Signatory-style)
+log_sig_words = log_signature(path, depth=2, mode="words")
+print(log_sig_words.shape)  # torch.Size([1, 3])
 ```
 
 ### Batched computation and streaming outputs
@@ -75,6 +81,26 @@ sig_stream = signature(path, depth=2, stream=True)
 print(sig_stream.shape)          # torch.Size([1, 2, 6])
 ```
 
+### Sliding-window signatures and log-signatures
+
+```python
+import torch
+from log_signatures_pytorch import windowed_signature, windowed_log_signature
+
+path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0], [3.0, -1.0]]).unsqueeze(0)
+width = path.shape[-1]
+window_size = 4
+hop_size = 2
+
+win_sig = windowed_signature(path, depth=2, window_size=window_size, hop_size=hop_size)
+print(win_sig.shape)   # torch.Size([batch, num_windows, 6])
+
+win_logsig = windowed_log_signature(
+    path, depth=2, window_size=window_size, hop_size=hop_size, mode="words"
+)
+print(win_logsig.shape)  # torch.Size([batch, num_windows, logsigdim_words(width, 2)])
+```
+
 ### Hall basis helpers
 
 ```python
@@ -85,13 +111,19 @@ print(basis)          # [1, 2, (1, 2)]
 
 keys = logsigkeys(width=2, depth=2)
 print(keys)           # ['1', '2', '[1,2]'] (matches esig format)
+
+# Lyndon words helpers
+from log_signatures_pytorch import lyndon_words, logsigkeys_words
+words = lyndon_words(width=2, depth=3)
+print(words)          # [(1,), (2,), (1, 2), (1, 1, 2), (1, 2, 2)]
+print(logsigkeys_words(width=2, depth=3))
 ```
 
 ### Choosing computation mode
 
 - `gpu_optimized`: defaults to True when the input tensor is on CUDA. Set False to force the CPU scan path.
-- `chunk_size`: optional on CPU to trade a small amount of extra compute for lower peak memory when sequences are long.
 - `method`: `log_signature(..., method="bch_sparse")` uses the incremental BCH routine for depths supported by `HallBCH` (depth ≤ 4); otherwise it falls back to the default path.
+- `mode`: `log_signature(..., mode="words"|"hall")` chooses the coordinate basis. Default is `"words"`. BCH currently requires `mode="hall"`; the default path supports both.
 
 Signature outputs exclude the empty word (dimension is `sum(width**k for k=1..depth)`); use `logsigdim(width, depth)` to size log-signature outputs.
 
@@ -104,7 +136,6 @@ Signature outputs exclude the empty word (dimension is `sum(width**k for k=1..de
 ## Testing and verification
 
 - Run the suite: `pytest tests -q`
-- Quick smoke check: `python main.py`
 - Mathematical property checks are documented in `tests/mathematical_verification_guide.md`.
 
 ## Documentation

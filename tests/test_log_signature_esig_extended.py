@@ -25,7 +25,7 @@ def test_parity_long_width2_depth4(length: int) -> None:
         [_random_path(length, width, dtype, seed=10 + i) for i in range(batch)],
         dim=0,
     )
-    ours = log_signature(paths, depth=depth).detach()
+    ours = log_signature(paths, depth=depth, mode="hall").detach()
     expected = torch.stack(
         [
             torch.tensor(esig.stream2logsig(path.numpy(), depth), dtype=dtype)
@@ -47,7 +47,7 @@ def test_parity_long_width3_depth3(length: int) -> None:
         [_random_path(length, width, dtype, seed=20 + i) for i in range(batch)],
         dim=0,
     )
-    ours = log_signature(paths, depth=depth).detach()
+    ours = log_signature(paths, depth=depth, mode="hall").detach()
     expected = torch.stack(
         [
             torch.tensor(esig.stream2logsig(path.numpy(), depth), dtype=dtype)

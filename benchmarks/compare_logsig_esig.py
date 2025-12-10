@@ -9,11 +9,13 @@ across configurable widths, depths, and path lengths.
 from __future__ import annotations
 
 import argparse
+import itertools
 import statistics
-import time
 from typing import Iterable, List, Sequence
 
 import torch
+
+from benchmarks.utils import generate_paths, maybe_sync, time_call_once
 
 try:
     import esig
@@ -24,29 +26,6 @@ except ImportError as exc:  # pragma: no cover - runtime guard
     ) from exc
 
 from log_signatures_pytorch.log_signature import log_signature
-
-
-def _maybe_sync(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize()
-
-
-def _generate_paths(
-    batch_size: int, length: int, width: int, dtype: torch.dtype, seed: int
-) -> torch.Tensor:
-    g = torch.Generator(device="cpu")
-    g.manual_seed(seed)
-    increments = torch.randn(batch_size, length, width, generator=g, dtype=dtype)
-    return torch.cumsum(increments, dim=1)
-
-
-def _time_call(fn, *args, device: torch.device) -> tuple[torch.Tensor, float]:
-    _maybe_sync(device)
-    start = time.perf_counter()
-    result = fn(*args)
-    _maybe_sync(device)
-    elapsed = time.perf_counter() - start
-    return result, elapsed
 
 
 def _format_seconds(value: float) -> str:
@@ -65,113 +44,120 @@ def benchmark(
     dtype: torch.dtype,
     device: torch.device,
     seed: int,
+    mode: str,
 ) -> List[dict]:
     rows: List[str] = []
     header = "width depth length batch esig_time logsig_time speedup max_err"
     rows.append(header)
     records: List[dict] = []
-    for width in widths:
-        for depth in depths:
-            for length in lengths:
-                log_times: List[float] = []
-                esig_times: List[float] = []
-                max_errors: List[float] = []
-                warmup_paths_cpu = _generate_paths(
-                    batch_size=batch_size,
-                    length=length,
-                    width=width,
+    for width, depth, length in itertools.product(widths, depths, lengths):
+        log_times: List[float] = []
+        esig_times: List[float] = []
+        max_errors: List[float] = []
+        warmup_paths_cpu = generate_paths(
+            batch=batch_size,
+            length=length,
+            width=width,
+            dtype=dtype,
+            seed=seed,
+        )
+        if device.type == "cuda":
+            warmup_paths_cpu = warmup_paths_cpu.pin_memory()
+        warmup_paths = (
+            warmup_paths_cpu.to(device, non_blocking=True)
+            if device.type == "cuda"
+            else warmup_paths_cpu
+        )
+
+        for _ in range(warmup):
+            log_signature(
+                warmup_paths,
+                depth=depth,
+                stream=False,
+                mode=mode,
+            )
+        maybe_sync(device)
+
+        def _esig_eval(paths_cpu: torch.Tensor) -> torch.Tensor:
+            vals = [
+                torch.tensor(
+                    esig.stream2logsig(path.numpy(), depth),
                     dtype=dtype,
-                    seed=seed,
                 )
-                if device.type == "cuda":
-                    warmup_paths_cpu = warmup_paths_cpu.pin_memory()
-                warmup_paths = (
-                    warmup_paths_cpu.to(device, non_blocking=True)
-                    if device.type == "cuda"
-                    else warmup_paths_cpu
+                for path in paths_cpu
+            ]
+            return torch.stack(vals, dim=0)
+
+        for _ in range(warmup):
+            _esig_eval(warmup_paths_cpu)
+
+        for repeat in range(repeats):
+            paths_cpu = generate_paths(
+                batch=batch_size,
+                length=length,
+                width=width,
+                dtype=dtype,
+                seed=seed + repeat,
+            )
+            if device.type == "cuda":
+                paths_cpu = paths_cpu.pin_memory()
+            paths = (
+                paths_cpu.to(device, non_blocking=True)
+                if device.type == "cuda"
+                else paths_cpu
+            )
+            ours, t_log = time_call_once(
+                lambda p: log_signature(
+                    p,
+                    depth=depth,
+                    stream=False,
+                    mode=mode,
+                ),
+                paths,
+                device=device,
+            )
+            log_times.append(t_log)
+
+            ours_cpu = ours.cpu()
+            ref, t_esig = time_call_once(
+                _esig_eval,
+                paths_cpu,
+                device=torch.device("cpu"),
+            )
+            esig_times.append(t_esig)
+            if ours_cpu.shape != ref.shape:
+                raise RuntimeError(
+                    f"Shape mismatch: ours {ours_cpu.shape} vs esig {ref.shape}"
                 )
+            torch.testing.assert_close(
+                ours_cpu,
+                ref,
+                atol=atol,
+                rtol=rtol,
+                msg=f"Outputs differ for width={width}, depth={depth}, length={length}",
+            )
+            max_errors.append((ours_cpu - ref).abs().max().item())
 
-                for _ in range(warmup):
-                    log_signature(warmup_paths, depth, False)
-                _maybe_sync(device)
-
-                def _esig_eval(paths_cpu: torch.Tensor) -> torch.Tensor:
-                    vals = [
-                        torch.tensor(
-                            esig.stream2logsig(path.numpy(), depth),
-                            dtype=dtype,
-                        )
-                        for path in paths_cpu
-                    ]
-                    return torch.stack(vals, dim=0)
-
-                for _ in range(warmup):
-                    _esig_eval(warmup_paths_cpu)
-
-                for repeat in range(repeats):
-                    paths_cpu = _generate_paths(
-                        batch_size=batch_size,
-                        length=length,
-                        width=width,
-                        dtype=dtype,
-                        seed=seed + repeat,
-                    )
-                    if device.type == "cuda":
-                        paths_cpu = paths_cpu.pin_memory()
-                    paths = (
-                        paths_cpu.to(device, non_blocking=True)
-                        if device.type == "cuda"
-                        else paths_cpu
-                    )
-                    ours, t_log = _time_call(
-                        log_signature,
-                        paths,
-                        depth,
-                        False,
-                        device=device,
-                    )
-                    log_times.append(t_log)
-
-                    ours_cpu = ours.cpu()
-                    ref, t_esig = _time_call(
-                        _esig_eval,
-                        paths_cpu,
-                        device=torch.device("cpu"),
-                    )
-                    esig_times.append(t_esig)
-                    if ours_cpu.shape != ref.shape:
-                        raise RuntimeError(
-                            f"Shape mismatch: ours {ours_cpu.shape} vs esig {ref.shape}"
-                        )
-                    torch.testing.assert_close(
-                        ours_cpu,
-                        ref,
-                        atol=atol,
-                        rtol=rtol,
-                        msg=f"Outputs differ for width={width}, depth={depth}, length={length}",
-                    )
-                    max_errors.append((ours_cpu - ref).abs().max().item())
-
-                mean_log = statistics.fmean(log_times)
-                mean_esig = statistics.fmean(esig_times)
-                speedup = mean_esig / mean_log if mean_log > 0 else float("inf")
-                records.append(
-                    {
-                        "width": width,
-                        "depth": depth,
-                        "length": length,
-                        "batch": batch_size,
-                        "esig_time_ms": mean_esig * 1e3,
-                        "logsig_time_ms": mean_log * 1e3,
-                        "speedup": speedup,
-                        "max_err": max(max_errors),
-                    }
-                )
-                rows.append(
-                    f"{width:>5} {depth:>5} {length:>6} {batch_size:>5} "
-                    f"{_format_seconds(mean_esig)} {_format_seconds(mean_log)} "
-                    f"{speedup:7.2f}x {max(max_errors):.2e}"
-                )
+        mean_log = statistics.fmean(log_times)
+        mean_esig = statistics.fmean(esig_times)
+        speedup = mean_esig / mean_log if mean_log > 0 else float("inf")
+        records.append(
+            {
+                "width": width,
+                "depth": depth,
+                "length": length,
+                "batch": batch_size,
+                "esig_time_ms": mean_esig * 1e3,
+                "logsig_time_ms": mean_log * 1e3,
+                "speedup": speedup,
+                "max_err": max(max_errors),
+            }
+        )
+        rows.append(
+            f"{width:>5} {depth:>5} {length:>6} {batch_size:>5} "
+            f"{_format_seconds(mean_esig)} {_format_seconds(mean_log)} "
+            f"{speedup:7.2f}x {max(max_errors):.2e}"
+        )
     print("\n".join(rows))
     return records
 
@@ -261,6 +247,15 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         default=None,
         help="If set, fail when logsig_time > esig_time * factor (e.g., 1.5).",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["hall"],
+        default="hall",
+        help=(
+            "Basis to use for log_signature; esig outputs Hall coordinates, so"
+            " comparison is only valid for mode='hall'."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -271,6 +266,10 @@ def main() -> None:
     if device.type == "cuda" and not torch.cuda.is_available():
         raise SystemExit("CUDA requested but not available.")
     torch.set_grad_enabled(False)
+    mode = args.mode.lower()
+    if mode != "hall":  # pragma: no cover - defensive guard
+        raise SystemExit("Comparison with esig is only supported in Hall basis.")
+
     records = benchmark(
         lengths=args.lengths,
         widths=args.widths,
@@ -283,6 +282,7 @@ def main() -> None:
         dtype=dtype,
         device=device,
         seed=args.seed,
+        mode=mode,
     )
     if args.output_csv:
         import csv

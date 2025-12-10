@@ -3,8 +3,25 @@
 import pytest
 import torch
 
-from log_signatures_pytorch.basis import hall_basis, logsigdim, logsigkeys
-from log_signatures_pytorch.log_signature import log_signature
+from functools import lru_cache
+
+from log_signatures_pytorch.hall_projection import hall_basis, logsigdim, logsigkeys
+from log_signatures_pytorch.lyndon_words import (
+    lyndon_words,
+    logsigdim_words,
+    logsigkeys_words,
+)
+from log_signatures_pytorch.log_signature import (
+    _signature_to_logsignature_tensor,
+    _unflatten_signature,
+    log_signature,
+)
+from log_signatures_pytorch.hall_projection import (
+    _hall_basis_tensors,
+    _hall_element_depth,
+    _project_to_hall_basis,
+)
+from log_signatures_pytorch.lyndon_words import _project_to_words_basis
 from log_signatures_pytorch.signature import signature
 from log_signatures_pytorch.tensor_ops import batch_lie_brackets, lie_brackets
 
@@ -82,6 +99,109 @@ class TestHallBasis:
             pass
 
 
+class TestLyndonWords:
+    """Tests for Lyndon/words basis utilities."""
+
+    @staticmethod
+    def _mobius(n: int) -> int:
+        """Integer Möbius function (simple factorization)."""
+        p = 0
+        m = n
+        d = 2
+        while d * d <= m:
+            cnt = 0
+            while m % d == 0:
+                m //= d
+                cnt += 1
+            if cnt > 1:
+                return 0
+            if cnt == 1:
+                p += 1
+            d += 1
+        if m > 1:
+            p += 1
+        return -1 if p % 2 else 1
+
+    def test_lyndon_count_matches_witt_formula(self):
+        """Count of Lyndon words matches Witt/necklace formula."""
+        for width in (2, 3, 4):
+            for length in (1, 2, 3, 4):
+                words = [w for w in lyndon_words(width, length) if len(w) == length]
+                count = len(words)
+                expected = (
+                    sum(
+                        self._mobius(d) * (width ** (length // d))
+                        for d in range(1, length + 1)
+                        if length % d == 0
+                    )
+                    // length
+                )
+                assert count == expected
+
+    @staticmethod
+    @lru_cache(maxsize=None)
+    def _hall_to_words_matrix(width: int, depth: int, device: str = "cpu"):
+        basis = hall_basis(width, depth)
+        dim = len(basis)
+        basis_tensors = _hall_basis_tensors(width, depth)
+        cols = []
+        for elem in basis:
+            level = _hall_element_depth(elem)
+            log_sig_tensors = [
+                torch.zeros(1, *([width] * d), dtype=torch.float64, device=device)
+                for d in range(1, depth + 1)
+            ]
+            log_sig_tensors[level - 1] = (
+                basis_tensors[elem].unsqueeze(0).to(device=device, dtype=torch.float64)
+            )
+            hall_vec = _project_to_hall_basis(log_sig_tensors, width, depth)
+            words_vec = _project_to_words_basis(log_sig_tensors, width, depth)
+            cols.append(words_vec.squeeze(0))
+            # Sanity: hall projection should be one-hot at this element
+            expected = torch.zeros(dim, dtype=torch.float64, device=device)
+            expected[len(cols) - 1] = 1.0
+            torch.testing.assert_close(
+                hall_vec.squeeze(0), expected, atol=1e-9, rtol=1e-9
+            )
+        return torch.stack(cols, dim=1)  # (dim, dim)
+
+    @pytest.mark.parametrize("width,depth", [(2, 3), (3, 2)])
+    def test_words_hall_change_of_basis_is_linear(self, width: int, depth: int):
+        """Check words coordinates are a linear transform of Hall coordinates."""
+        C = self._hall_to_words_matrix(width, depth)
+        dim = C.shape[0]
+        assert torch.linalg.matrix_rank(C) == dim
+
+        torch.manual_seed(0)
+        path = torch.randn(2, 5, width, dtype=torch.float64)
+        hall_vec = log_signature(path, depth=depth, mode="hall")
+        words_vec = log_signature(path, depth=depth, mode="words")
+
+        torch.testing.assert_close(
+            words_vec,
+            hall_vec @ C,
+            atol=1e-8,
+            rtol=1e-6,
+        )
+
+    def test_lyndon_words_ordering_and_dim(self):
+        words = lyndon_words(3, 3)
+        lengths = [len(w) for w in words]
+        assert lengths == sorted(lengths)  # non-decreasing by length
+        # Within each length, lexicographic
+        for L in {1, 2, 3}:
+            block = [w for w in words if len(w) == L]
+            assert block == sorted(block)
+        # Dimension matches Hall basis dimension
+        assert logsigdim_words(3, 3) == logsigdim(3, 3)
+
+    def test_logsigkeys_words(self):
+        keys = logsigkeys_words(2, 2)
+        assert keys[0] == "1"
+        assert keys[1] == "2"
+        assert "1,2" in keys
+
+
 class TestLieBracket:
     """Tests for Lie bracket operations."""
 
@@ -143,6 +263,23 @@ class TestLogSignature:
         expected_dim = logsigdim(2, depth)
         assert log_sig.shape == (2, expected_dim)
 
+    def test_log_signature_words_mode_shape_and_value(self):
+        """Words mode should gather Lyndon coefficients without mixing."""
+        path = torch.tensor([[0.0, 0.0], [1.0, -1.0], [0.5, 0.5]]).unsqueeze(0)
+        depth = 2
+
+        # Direct API
+        log_sig_words = log_signature(path, depth=depth, mode="words")
+
+        # Manual gather from tensor-log (should match words mode)
+        sig = signature(path, depth=depth)
+        tensors = _unflatten_signature(sig, width=2, depth=depth)
+        log_tensors = _signature_to_logsignature_tensor(tensors, width=2, depth=depth)
+        manual_words = _project_to_words_basis(log_tensors, width=2, depth=depth)
+
+        torch.testing.assert_close(log_sig_words, manual_words, atol=1e-6, rtol=1e-6)
+        assert log_sig_words.shape[1] == logsigdim_words(2, depth)
+
     def test_log_signature_stream_shape(self):
         """Test log-signature shape in streaming mode."""
         path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]).unsqueeze(0)
@@ -152,6 +289,15 @@ class TestLogSignature:
 
         expected_dim = logsigdim(2, depth)
         assert log_sig.shape == (1, 2, expected_dim)  # length-1 timesteps
+
+    def test_log_signature_words_stream_shape(self):
+        path = torch.tensor([[0.0, 0.0], [1.0, 0.5], [1.5, -0.5]]).unsqueeze(0)
+        depth = 3
+
+        log_sig = log_signature(path, depth=depth, stream=True, mode="words")
+
+        expected_dim = logsigdim_words(2, depth)
+        assert log_sig.shape == (1, 2, expected_dim)
 
     def test_log_signature_straight_line(self):
         """Test log-signature of a straight line path.
@@ -191,6 +337,20 @@ class TestLogSignature:
 
         assert base_path.grad is not None
         assert not torch.isnan(base_path.grad).any()
+
+    def test_log_signature_words_differentiability(self):
+        base_path = torch.tensor(
+            [[0.0, 0.0], [0.5, -0.25], [1.0, 0.75]], requires_grad=True
+        )
+        path = base_path.unsqueeze(0)
+        depth = 3
+
+        log_sig = log_signature(path, depth=depth, mode="words")
+        loss = log_sig.pow(2).sum()
+        loss.backward()
+
+        assert base_path.grad is not None
+        assert torch.isfinite(base_path.grad).all()
 
     def test_log_signature_stream_grad_propagates(self):
         torch.manual_seed(5)
