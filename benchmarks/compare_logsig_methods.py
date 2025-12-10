@@ -17,7 +17,7 @@ from typing import List, Sequence
 import torch
 
 from benchmarks.utils import generate_paths, time_call
-from log_signatures_pytorch.hall_bch import supports_depth
+from log_signatures_pytorch.hall_bch import sparse_bch_supports_depth
 from log_signatures_pytorch.log_signature import log_signature
 
 
@@ -47,7 +47,7 @@ def benchmark(
     for width, depth, length, batch in itertools.product(
         widths, depths, lengths, batches
     ):
-        bch_supported = supports_depth(depth)
+        bch_supported = sparse_bch_supports_depth(depth)
         paths = generate_paths(
             batch=batch,
             length=length,

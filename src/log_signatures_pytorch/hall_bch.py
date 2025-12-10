@@ -21,7 +21,6 @@ from .hall_projection import (
 from .tensor_ops import lie_brackets
 
 
-@lru_cache(maxsize=None)
 def _structure_constants(width: int, depth: int) -> torch.Tensor:
     """Pre-compute [e_i, e_j] expansion in the Hall basis.
 
@@ -44,8 +43,8 @@ def _structure_constants(width: int, depth: int) -> torch.Tensor:
 
     Notes
     -----
-    This function is cached to avoid recomputing structure constants for the
-    same width and depth combination.
+    Intentionally **not** cached to avoid holding a dense ``dim^3`` tensor in
+    memory. Callers should cache downstream sparse representations instead.
     """
     basis = hall_basis(width, depth)
     dim = len(basis)
@@ -294,7 +293,7 @@ class HallBCH:
         return z
 
 
-def supports_depth(depth: int) -> bool:
+def sparse_bch_supports_depth(depth: int) -> bool:
     """Return True if the BCH truncation is implemented for this depth.
 
     Checks whether the sparse Hall-BCH method supports the given depth.
@@ -309,16 +308,5 @@ def supports_depth(depth: int) -> bool:
     -------
     bool
         True if depth <= 4, False otherwise.
-
-    Examples
-    --------
-    >>> from log_signatures_pytorch.hall_bch import supports_depth
-    >>>
-    >>> supports_depth(2)
-    True
-    >>> supports_depth(4)
-    True
-    >>> supports_depth(5)
-    False
     """
     return depth <= 4

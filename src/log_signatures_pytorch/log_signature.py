@@ -17,7 +17,7 @@ from typing import Optional, Tuple
 import torch
 from torch import Tensor
 
-from .hall_bch import HallBCH, supports_depth
+from .hall_bch import HallBCH, sparse_bch_supports_depth
 from .hall_projection import _project_to_hall_basis, logsigdim
 from .lyndon_words import (
     _project_to_words_basis,
@@ -386,7 +386,7 @@ def log_signature(
     if method == "bch_sparse":
         if mode != "hall":
             raise ValueError("mode='words' is only supported with method='default'.")
-        if not supports_depth(depth):
+        if not sparse_bch_supports_depth(depth):
             log_sig = _batch_log_signature(
                 path,
                 depth=depth,
