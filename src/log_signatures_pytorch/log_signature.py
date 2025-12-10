@@ -348,7 +348,7 @@ def log_signature(
     >>> path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]).unsqueeze(0)
     >>> log_sig = log_signature(path, depth=2)
     >>> log_sig.shape
-    torch.Size([1, 3])  # logsigdim_words(2, 2) = 3
+    torch.Size([1, 3])
     >>> logsigdim_words(2, 2)
     3
     >>>
@@ -364,7 +364,7 @@ def log_signature(
     >>> # Streaming log-signatures
     >>> log_sig_stream = log_signature(path, depth=2, stream=True)
     >>> log_sig_stream.shape
-    torch.Size([1, 2, 3])  # (batch, steps, logsigdim)
+    torch.Size([1, 2, 3])
     >>>
     >>> # Using BCH method (faster for depth <= 4)
     >>> log_sig_bch = log_signature(path, depth=2, method="bch_sparse", mode="hall")

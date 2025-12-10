@@ -229,8 +229,8 @@ def batch_restricted_exp(input: Tensor, depth: int) -> list[Tensor]:
     -------
     list[Tensor]
         List of length ``depth`` where entry ``k`` has shape
-        ``(batch, width**(k+1))`` when flattened or ``(batch, width, ..., width)``
-        with ``k+1`` trailing width dimensions.
+        ``(batch, width, ..., width)`` with ``k+1`` trailing width dimensions
+        (equivalently ``width**(k+1)`` elements when flattened).
 
     Examples
     --------
@@ -244,7 +244,7 @@ def batch_restricted_exp(input: Tensor, depth: int) -> list[Tensor]:
     >>> result[0].shape  # depth 1
     torch.Size([2, 2])
     >>> result[1].shape  # depth 2
-    torch.Size([2, 4])
+    torch.Size([2, 2, 2])
     """
     ret = [input]
     for i in range(2, depth + 1):
@@ -266,7 +266,8 @@ def batch_mult_fused_restricted_exp(z: Tensor, A: list[Tensor]) -> list[Tensor]:
         representing a path increment.
     A : list[Tensor]
         List of current exponential terms; ``A[k]`` has shape
-        ``(batch, n_features ** (k + 1))``.
+        ``(batch, n_features, ..., n_features)`` with ``k + 1`` trailing
+        ``n_features`` axes.
 
     Returns
     -------
@@ -282,7 +283,7 @@ def batch_mult_fused_restricted_exp(z: Tensor, A: list[Tensor]) -> list[Tensor]:
     >>> z = torch.tensor([[1.0, 2.0]])  # (batch=1, width=2)
     >>> A = [
     ...     torch.tensor([[1.0, 2.0]]),  # depth 1: (batch=1, width=2)
-    ...     torch.tensor([[0.5, 0.3, 0.2, 0.1]]),  # depth 2: (batch=1, width=4)
+    ...     torch.tensor([[[0.5, 0.3], [0.2, 0.1]]]),  # depth 2: (batch=1, width, width)
     ... ]
     >>> result = batch_mult_fused_restricted_exp(z, A)
     >>> len(result)
@@ -290,7 +291,7 @@ def batch_mult_fused_restricted_exp(z: Tensor, A: list[Tensor]) -> list[Tensor]:
     >>> result[0].shape
     torch.Size([1, 2])
     >>> result[1].shape
-    torch.Size([1, 4])
+    torch.Size([1, 2, 2])
     """
     depth = len(A)
     dtype = z.dtype
@@ -388,11 +389,12 @@ def batch_bch_formula(a: list[Tensor], b: list[Tensor], depth: int) -> list[Tens
     Parameters
     ----------
     a : list[Tensor]
-        List of tensors where ``a[k]`` has shape ``(batch, width**(k+1))``,
-        representing the first log-signature.
+        List of tensors where ``a[k]`` has shape
+        ``(batch, width, ..., width)`` with ``k + 1`` trailing ``width`` axes,
+        representing the first log-signature components.
     b : list[Tensor]
-        List of tensors with the same structure as ``a``, representing the
-        second log-signature.
+        List of tensors with the same structure as ``a``, representing the second
+        log-signature.
     depth : int
         Truncation depth for the BCH series.
 
@@ -416,17 +418,19 @@ def batch_bch_formula(a: list[Tensor], b: list[Tensor], depth: int) -> list[Tens
     >>>
     >>> a = [
     ...     torch.tensor([[1.0, 2.0]]),  # depth 1
-    ...     torch.tensor([[0.5, 0.3, 0.2, 0.1]]),  # depth 2
+    ...     torch.tensor([[[0.5, 0.3], [0.2, 0.1]]]),  # depth 2
     ... ]
     >>> b = [
     ...     torch.tensor([[3.0, 4.0]]),  # depth 1
-    ...     torch.tensor([[0.6, 0.4, 0.3, 0.2]]),  # depth 2
+    ...     torch.tensor([[[0.6, 0.4], [0.3, 0.2]]]),  # depth 2
     ... ]
     >>> result = batch_bch_formula(a, b, depth=2)
     >>> len(result)
     2
     >>> result[0].shape
     torch.Size([1, 2])
+    >>> result[1].shape
+    torch.Size([1, 2, 2])
     """
     if depth == 0:
         return []

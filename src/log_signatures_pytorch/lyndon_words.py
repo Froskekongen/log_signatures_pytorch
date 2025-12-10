@@ -79,10 +79,9 @@ def _words_indices(
         for letter in word:
             idx = idx * width + (letter - 1)
         grouped[len(word) - 1].append(idx)
-    
+
     return tuple(
-        torch.tensor(group, device=device, dtype=torch.long) 
-        for group in grouped
+        torch.tensor(group, device=device, dtype=torch.long) for group in grouped
     )
 
 

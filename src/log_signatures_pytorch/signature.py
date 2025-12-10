@@ -61,7 +61,7 @@ def signature(
     >>> path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]).unsqueeze(0)
     >>> sig = signature(path, depth=2)
     >>> sig.shape
-    torch.Size([1, 6])  # 2 + 4 = 6 for depth 2, width 2
+    torch.Size([1, 6])
     >>>
     >>> # Batched paths
     >>> batch_paths = torch.tensor([
@@ -75,7 +75,7 @@ def signature(
     >>> # Streaming signatures
     >>> sig_stream = signature(path, depth=2, stream=True)
     >>> sig_stream.shape
-    torch.Size([1, 2, 6])  # (batch, steps, sig_dim)
+    torch.Size([1, 2, 6])
     """
     if path.ndim != 3:
         msg = (
@@ -96,7 +96,9 @@ def _signature_level_sizes(width: int, depth: int) -> list[int]:
     return [width**k for k in range(1, depth + 1)]
 
 
-def _unflatten_stream_signature(stream_sig: Tensor, width: int, depth: int) -> list[Tensor]:
+def _unflatten_stream_signature(
+    stream_sig: Tensor, width: int, depth: int
+) -> list[Tensor]:
     batch, steps, _ = stream_sig.shape
     sizes = _signature_level_sizes(width, depth)
     levels: list[Tensor] = []
@@ -115,7 +117,9 @@ def _signature_inverse(levels: list[Tensor]) -> list[Tensor]:
     for depth_index, level in enumerate(levels):
         current = -level
         for i in range(depth_index):
-            current = current - batch_tensor_product(levels[i], inverse[depth_index - i - 1])
+            current = current - batch_tensor_product(
+                levels[i], inverse[depth_index - i - 1]
+            )
         inverse.append(current)
     return inverse
 
@@ -129,7 +133,9 @@ def _signature_multiply(left: list[Tensor], right: list[Tensor]) -> list[Tensor]
     for depth_index in range(len(left)):
         current = left[depth_index] + right[depth_index]
         for i in range(depth_index):
-            current = current + batch_tensor_product(left[i], right[depth_index - i - 1])
+            current = current + batch_tensor_product(
+                left[i], right[depth_index - i - 1]
+            )
         product.append(current)
     return product
 
@@ -162,13 +168,21 @@ def windowed_signature(
     Returns
     -------
     Tensor
-        Tensor of shape ``(batch, num_windows, dim + dim² + ... + dim^depth)``
+        Tensor of shape ``(batch, num_windows, dim + dim² + ... + dim^depth)``,
+        where ``num_windows = 1 + (length - window_size) // hop_size``,
         containing the signature of each window, flattened level-wise.
 
     Raises
     ------
     ValueError
         If ``path`` is not three-dimensional or if windowing parameters are invalid.
+
+    Notes
+    -----
+    - Implements the Signatory-style streaming reuse (Chen) without materializing
+      every window explicitly.
+    - Provides the building block for :func:`windowed_log_signature`; both share
+      identical window indexing and batching semantics.
     """
     if path.ndim != 3:
         msg = (

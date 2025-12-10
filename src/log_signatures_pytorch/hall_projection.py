@@ -235,7 +235,7 @@ class HallProjector:
     ... ]
     >>> result = projector.project(log_sig_tensors)
     >>> result.shape
-    torch.Size([1, 3])  # logsigdim(2, 2) = 3
+    torch.Size([1, 3])
     """
 
     width: int

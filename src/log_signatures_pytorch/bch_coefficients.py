@@ -111,14 +111,19 @@ def bch_coeffs(width: int, depth: int) -> CoeffMap:
     True
     >>> coeffs[(2,)] == Fraction(1, 1)
     True
-    >>> # The bracket [1, 2] should have coefficient 1/2
-    >>> coeffs.get((1, 2), 0) - coeffs.get((2, 1), 0) == Fraction(1, 2)
+    >>> # The bracket [1, 2] has coefficient 1/2, split across (1, 2) and (2, 1)
+    >>> coeffs.get((1, 2), 0) == Fraction(1, 2)
+    True
+    >>> coeffs.get((2, 1), 0) == Fraction(-1, 2)
+    True
+    >>> coeffs.get((1, 2), 0) - coeffs.get((2, 1), 0) == Fraction(1, 1)
     True
     >>>
     >>> # BCH coefficients for width=3, depth=2
     >>> coeffs = bch_coeffs(3, 2)
+    >>> # Three degree-1 generators
     >>> len([w for w in coeffs.keys() if len(w) == 1])
-    3  # Three degree-1 generators
+    3
     """
     if depth < 1 or width < 1:
         return {}

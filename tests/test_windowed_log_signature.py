@@ -8,7 +8,9 @@ def _explicit_windowed_log_signature(
     path: torch.Tensor, depth: int, window_size: int, hop_size: int, mode: str = "words"
 ) -> torch.Tensor:
     """Baseline using torch.unfold + batched log_signature."""
-    windows = path.unfold(dimension=1, size=window_size, step=hop_size)  # (batch, num_windows, width, window)
+    windows = path.unfold(
+        dimension=1, size=window_size, step=hop_size
+    )  # (batch, num_windows, width, window)
     windows = windows.permute(0, 1, 3, 2)  # (batch, num_windows, window, width)
     batch, num_windows, _, width = windows.shape
     flattened = windows.reshape(batch * num_windows, window_size, width)
@@ -18,7 +20,9 @@ def _explicit_windowed_log_signature(
 
 @pytest.mark.parametrize("mode", ["words", "hall"])
 @pytest.mark.parametrize("window_size,hop_size", [(32, 8), (3, 1), (4, 2)])
-def test_windowed_log_signature_matches_explicit(mode: str, window_size: int, hop_size: int):
+def test_windowed_log_signature_matches_explicit(
+    mode: str, window_size: int, hop_size: int
+):
     torch.manual_seed(0)
     batch, length, width = 2, 160, 3
     path = torch.randn(batch, length, width, dtype=torch.float64)

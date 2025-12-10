@@ -5,6 +5,7 @@ Differentiable log-signature and signature kernels implemented in PyTorch with b
 ## What you'll find
 
 - Batched signature and log-signature computation for tensors shaped `(batch, length, dim)` with optional streaming outputs at every step. For a single path, add a leading dimension via `unsqueeze(0)`.
+- Sliding-window signatures and log-signatures that reuse streamed prefixes (Chen identity) instead of recomputing each window independently.
 - Hall-basis utilities (`hall_basis`, `logsigdim`, `logsigkeys`) for inspecting dimensions and basis labels.
 - Two log-signature coordinate systems:
   - `mode="words"` (default): Signatory-style Lyndon words basis using a gather-only projection for faster CPU/GPU throughput.
@@ -52,6 +53,24 @@ print(log_sig_stream.shape)      # torch.Size([2, 1, 3]) -> (batch, steps, logsi
 # Streaming for a single path returns one row per increment (batch=1)
 sig_stream = signature(path, depth=2, stream=True)
 print(sig_stream.shape)          # torch.Size([1, 2, 6])
+```
+
+### Sliding-window signatures and log-signatures
+
+```python
+import torch
+from log_signatures_pytorch import windowed_signature, windowed_log_signature
+
+path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0], [3.0, -1.0]]).unsqueeze(0)
+width = path.shape[-1]
+window_size = 4
+hop_size = 2
+
+win_sig = windowed_signature(path, depth=2, window_size=window_size, hop_size=hop_size)
+print(win_sig.shape)    # torch.Size([batch, num_windows, 6])
+
+win_logsig = windowed_log_signature(path, depth=2, window_size=window_size, hop_size=hop_size, mode="hall")
+print(win_logsig.shape) # torch.Size([batch, num_windows, logsigdim(width, 2)])
 ```
 
 ### Hall basis helpers
