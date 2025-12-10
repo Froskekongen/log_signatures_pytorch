@@ -24,7 +24,7 @@ from .lyndon_words import (
     lyndon_words,
     logsigdim_words,
 )
-from .signature import signature
+from .signature import signature, windowed_signature
 from .tensor_ops import batch_tensor_product
 
 
@@ -414,3 +414,85 @@ def log_signature(
         )
 
     return log_sig
+
+
+def windowed_log_signature(
+    path: Tensor,
+    depth: int,
+    window_size: int,
+    hop_size: int,
+    gpu_optimized: Optional[bool] = None,
+    mode: str = "words",
+) -> Tensor:
+    """Sliding-window log-signatures via windowed signatures + projection.
+
+    Windows are formed with ``size=window_size`` and ``step=hop_size``.
+    Signatures are obtained using :func:`windowed_signature` (Chen reuse of
+    streaming prefixes), then converted to log-signatures and projected to the
+    requested basis.
+
+    Parameters
+    ----------
+    path : Tensor
+        Tensor of shape ``(batch, length, dim)`` representing batched paths.
+        For a single path, pass ``path.unsqueeze(0)`` to add a batch dimension.
+    depth : int
+        Maximum depth to truncate log-signature computation. The output dimension
+        will be ``logsigdim(dim, depth)``.
+    window_size : int
+        Size of the window to use for the signature.
+    hop_size : int
+        Hop size to use for the signature.
+    gpu_optimized : bool, optional
+        If True, use GPU-optimized implementation. If None, auto-detect
+        (defaults to True when the input is on CUDA). Ignored for the BCH path.
+        Default is None.
+    mode : str, optional
+        Basis for the log-signature coordinates: "words" (default) or "hall".
+        "words" is only available with ``method=\"default\"``.
+
+    Returns
+    -------
+    Tensor
+        Tensor of shape ``(batch, num_windows, D)`` where
+        ``num_windows = 1 + (length - window_size) // hop_size`` and
+        ``D = logsigdim_words(dim, depth)`` if ``mode=\"words\"`` else
+        ``logsigdim(dim, depth)`` for Hall.
+
+    Raises
+    ------
+    ValueError
+        If ``path`` is not three-dimensional or if ``mode`` is unsupported.
+    """
+    if path.ndim != 3:
+        msg = (
+            f"Path must be of shape (batch, path_length, path_dim); got {path.shape}. "
+            "Wrap a single path with path.unsqueeze(0)."
+        )
+        raise ValueError(msg)
+
+    mode = (mode or "words").lower()
+    if mode not in {"hall", "words"}:
+        raise ValueError(f"Unsupported mode '{mode}'. Use 'hall' or 'words'.")
+
+    batch, _, width = path.shape
+
+    # Reuse efficient streaming→windowed signature computation.
+    window_sig = windowed_signature(
+        path,
+        depth=depth,
+        window_size=window_size,
+        hop_size=hop_size,
+        gpu_optimized=gpu_optimized,
+    )  # (batch, num_windows, sigdim)
+
+    batch_windows, num_windows = batch, window_sig.shape[1]
+
+    flattened = window_sig.reshape(batch_windows * num_windows, -1)
+    sig_tensors = _unflatten_signature(flattened, width, depth)
+    log_sig_tensors = _signature_to_logsignature_tensor(sig_tensors, width, depth)
+
+    projector = _project_to_hall_basis if mode == "hall" else _project_to_words_basis
+    projected = projector(log_sig_tensors, width, depth)
+
+    return projected.reshape(batch_windows, num_windows, -1)
