@@ -69,15 +69,21 @@ def logsigkeys_words(width: int, depth: int) -> List[str]:
 
 
 @lru_cache(maxsize=None)
-def _words_indices(width: int, depth: int) -> Tuple[Tuple[int, ...], ...]:
-    """Cached tensor indices for Lyndon words grouped by length."""
+def _words_indices(
+    width: int, depth: int, device: torch.device = torch.device("cpu")
+) -> Tuple[torch.Tensor, ...]:
+    """Cached tensor indices for Lyndon words grouped by length on the target device."""
     grouped = [[] for _ in range(depth)]
     for word in lyndon_words(width, depth):
         idx = 0
         for letter in word:
             idx = idx * width + (letter - 1)
         grouped[len(word) - 1].append(idx)
-    return tuple(tuple(group) for group in grouped)
+    
+    return tuple(
+        torch.tensor(group, device=device, dtype=torch.long) 
+        for group in grouped
+    )
 
 
 def _project_to_words_basis(
@@ -91,14 +97,14 @@ def _project_to_words_basis(
             dtype=torch.float32,  # pragma: no cover
         )
 
-    indices_by_depth = _words_indices(width, depth)
+    indices_by_depth = _words_indices(width, depth, device=log_sig_tensors[0].device)
     slices = []
-    for k, indices in enumerate(indices_by_depth, start=1):
-        if not indices:
+    for k, indices in enumerate(indices_by_depth):
+        # ``indices`` is a tensor; guard against empty tensors explicitly
+        if indices.numel() == 0:
             continue
-        tensor = log_sig_tensors[k - 1].reshape(log_sig_tensors[k - 1].shape[0], -1)
-        gather_idx = torch.tensor(indices, device=tensor.device, dtype=torch.long)
-        slices.append(torch.index_select(tensor, dim=1, index=gather_idx))
+        tensor_flat = log_sig_tensors[k].reshape(log_sig_tensors[k].shape[0], -1)
+        slices.append(torch.index_select(tensor_flat, dim=1, index=indices))
     if not slices:
         return torch.zeros(
             log_sig_tensors[0].shape[0],
