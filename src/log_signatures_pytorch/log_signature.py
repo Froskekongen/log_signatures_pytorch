@@ -496,3 +496,80 @@ def windowed_log_signature(
     projected = projector(log_sig_tensors, width, depth)
 
     return projected.reshape(batch_windows, num_windows, -1)
+
+
+def _infer_width_from_signature_dim(sigdim: int, depth: int) -> int:
+    """Infer path width from flattened signature dimension."""
+    if depth < 1:
+        raise ValueError("depth must be at least 1.")
+
+    width = 1
+    while True:
+        total = 0
+        power = width
+        for _ in range(depth):
+            total += power
+            power *= width
+
+        if total == sigdim:
+            return width
+
+        if total > sigdim or width > sigdim:
+            raise ValueError(
+                f"Signature dimension {sigdim} is incompatible with depth {depth}."
+            )
+
+        width += 1
+
+
+def signature_to_logsignature(
+    signature: Tensor,
+    depth: int,
+    mode: str = "words",
+) -> Tensor:
+    """Convert signature to log-signature.
+    
+    Parameters
+    ----------
+    signature: Tensor
+        Signature tensor of shape ``(batch, num_windows, depth, dim)``.
+        if num_windows=1, then it is the signature over the entire path.
+    depth: int
+        Depth of the log-signature.
+    mode: str, optional
+        Basis for the log-signature coordinates: "words" (default) or "hall".
+        "words" is only available with ``method=\"default\"``.
+
+    Returns
+    -------
+    Tensor
+        Log-signature tensor with the same leading shape as ``signature`` but
+        with the last dimension replaced by the log-signature dimension
+        (``logsigdim`` or ``logsigdim_words`` depending on ``mode``). This
+        accepts outputs from :func:`signature`, :func:`windowed_signature`, or
+        any precomputed flattened signature with last dimension
+        ``width + width^2 + ... + width^depth``.
+    """
+    mode = (mode or "words").lower()
+    if mode not in {"hall", "words"}:
+        raise ValueError(f"Unsupported mode '{mode}'. Use 'hall' or 'words'.")
+
+    if signature.ndim < 2:
+        raise ValueError(
+            "signature tensor must have at least one batch dimension "
+            "and a trailing signature dimension."
+        )
+
+    sigdim = signature.shape[-1]
+    width = _infer_width_from_signature_dim(sigdim, depth)
+
+    leading_shape = signature.shape[:-1]
+    flat = signature.reshape(-1, sigdim)
+
+    sig_tensors = _unflatten_signature(flat, width, depth)
+    log_sig_tensors = _signature_to_logsignature_tensor(sig_tensors, width, depth)
+
+    projector = _project_to_hall_basis if mode == "hall" else _project_to_words_basis
+    projected = projector(log_sig_tensors, width, depth)
+
+    return projected.reshape(*leading_shape, projected.shape[-1])
