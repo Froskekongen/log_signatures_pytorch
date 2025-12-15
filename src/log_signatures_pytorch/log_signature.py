@@ -24,7 +24,11 @@ from .lyndon_words import (
     lyndon_words,
     logsigdim_words,
 )
-from .signature import signature, windowed_signature
+from .signature import (
+    signature,
+    windowed_signature,
+    _infer_width_from_signature_dim,
+)
 from .tensor_ops import batch_tensor_product
 
 
@@ -497,29 +501,6 @@ def windowed_log_signature(
 
     return projected.reshape(batch_windows, num_windows, -1)
 
-
-def _infer_width_from_signature_dim(sigdim: int, depth: int) -> int:
-    """Infer path width from flattened signature dimension."""
-    if depth < 1:
-        raise ValueError("depth must be at least 1.")
-
-    width = 1
-    while True:
-        total = 0
-        power = width
-        for _ in range(depth):
-            total += power
-            power *= width
-
-        if total == sigdim:
-            return width
-
-        if total > sigdim or width > sigdim:
-            raise ValueError(
-                f"Signature dimension {sigdim} is incompatible with depth {depth}."
-            )
-
-        width += 1
 
 
 def signature_to_logsignature(

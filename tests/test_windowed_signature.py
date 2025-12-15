@@ -1,7 +1,11 @@
 import pytest
 import torch
 
-from log_signatures_pytorch.signature import signature, windowed_signature
+from log_signatures_pytorch.signature import (
+    signature,
+    windowed_signature,
+    stream_to_window_signatures,
+)
 
 
 def _explicit_windowed_signature(
@@ -46,3 +50,17 @@ def test_windowed_signature_single_window_equals_full_signature():
     full = signature(path, depth=depth, stream=False)
 
     torch.testing.assert_close(actual.squeeze(1), full, atol=1e-9, rtol=1e-7)
+
+
+def test_stream_to_window_signatures_matches_windowed_signature():
+    torch.manual_seed(2)
+    batch, length, width = 2, 20, 2
+    path = torch.randn(batch, length, width, dtype=torch.float64)
+    depth = 2
+    window_size, hop_size = 5, 2
+
+    stream = signature(path, depth=depth, stream=True)
+    actual = stream_to_window_signatures(stream, depth, window_size, hop_size)
+    expected = windowed_signature(path, depth=depth, window_size=window_size, hop_size=hop_size)
+
+    torch.testing.assert_close(actual, expected)
