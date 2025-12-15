@@ -195,7 +195,9 @@ def stream_to_window_signatures(
     """
     if signature.ndim != 3:
         raise ValueError(
-            f"Signature must be of shape (batch, length, dim); got {signature.shape}."
+            "Signature must be a 3D tensor of shape "
+            f"(batch, length-1, sigdim) as returned by signature(..., stream=True); "
+            f"got {signature.shape}."
         )
 
     batch_size, stream_len, sig_dim = signature.shape

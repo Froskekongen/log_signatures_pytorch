@@ -70,7 +70,7 @@ win_sig = windowed_signature(path, depth=2, window_size=window_size, hop_size=ho
 print(win_sig.shape)    # torch.Size([batch, num_windows, 6])
 
 win_logsig = windowed_log_signature(path, depth=2, window_size=window_size, hop_size=hop_size, mode="hall")
-print(win_logsig.shape) # torch.Size([batch, num_windows, logsigdim(width, 2)])
+print(win_logsig.shape) # torch.Size([batch, num_windows, logsigdim(width, 2)])  # use mode="words" + logsigdim_words for the default basis
 ```
 
 ### Hall basis helpers

@@ -310,7 +310,8 @@ def log_signature(
         For a single path, pass ``path.unsqueeze(0)`` to add a batch dimension.
     depth : int
         Maximum depth to truncate log-signature computation. The output dimension
-        will be ``logsigdim(dim, depth)``.
+        is ``logsigdim(dim, depth)`` for ``mode="hall"`` and
+        ``logsigdim_words(dim, depth)`` for ``mode="words"``.
     stream : bool, optional
         If True, computed log-signatures are returned for each step. Default is False.
     gpu_optimized : bool, optional
@@ -442,7 +443,8 @@ def windowed_log_signature(
         For a single path, pass ``path.unsqueeze(0)`` to add a batch dimension.
     depth : int
         Maximum depth to truncate log-signature computation. The output dimension
-        will be ``logsigdim(dim, depth)``.
+        is ``logsigdim(dim, depth)`` for ``mode="hall"`` and
+        ``logsigdim_words(dim, depth)`` for ``mode="words"``.
     window_size : int
         Size of the window to use for the signature.
     hop_size : int
@@ -509,27 +511,26 @@ def signature_to_logsignature(
     mode: str = "words",
 ) -> Tensor:
     """Convert signature to log-signature.
-    
+
     Parameters
     ----------
     signature: Tensor
-        Signature tensor of shape ``(batch, num_windows, depth, dim)``.
-        if num_windows=1, then it is the signature over the entire path.
+        Signature tensor with arbitrary leading batch/window dimensions and
+        trailing dimension equal to the flattened signature size
+        ``width + width^2 + ... + width^depth``. This includes outputs from
+        :func:`signature`, :func:`windowed_signature`, or any precomputed
+        flattened signature with that final dimension.
     depth: int
         Depth of the log-signature.
     mode: str, optional
         Basis for the log-signature coordinates: "words" (default) or "hall".
-        "words" is only available with ``method=\"default\"``.
 
     Returns
     -------
     Tensor
         Log-signature tensor with the same leading shape as ``signature`` but
         with the last dimension replaced by the log-signature dimension
-        (``logsigdim`` or ``logsigdim_words`` depending on ``mode``). This
-        accepts outputs from :func:`signature`, :func:`windowed_signature`, or
-        any precomputed flattened signature with last dimension
-        ``width + width^2 + ... + width^depth``.
+        (``logsigdim`` or ``logsigdim_words`` depending on ``mode``).
     """
     mode = (mode or "words").lower()
     if mode not in {"hall", "words"}:
