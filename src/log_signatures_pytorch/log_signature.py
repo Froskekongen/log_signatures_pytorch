@@ -24,7 +24,11 @@ from .lyndon_words import (
     lyndon_words,
     logsigdim_words,
 )
-from .signature import signature, windowed_signature
+from .signature import (
+    signature,
+    windowed_signature,
+    _infer_width_from_signature_dim,
+)
 from .tensor_ops import batch_tensor_product
 
 
@@ -306,7 +310,8 @@ def log_signature(
         For a single path, pass ``path.unsqueeze(0)`` to add a batch dimension.
     depth : int
         Maximum depth to truncate log-signature computation. The output dimension
-        will be ``logsigdim(dim, depth)``.
+        is ``logsigdim(dim, depth)`` for ``mode="hall"`` and
+        ``logsigdim_words(dim, depth)`` for ``mode="words"``.
     stream : bool, optional
         If True, computed log-signatures are returned for each step. Default is False.
     gpu_optimized : bool, optional
@@ -438,7 +443,8 @@ def windowed_log_signature(
         For a single path, pass ``path.unsqueeze(0)`` to add a batch dimension.
     depth : int
         Maximum depth to truncate log-signature computation. The output dimension
-        will be ``logsigdim(dim, depth)``.
+        is ``logsigdim(dim, depth)`` for ``mode="hall"`` and
+        ``logsigdim_words(dim, depth)`` for ``mode="words"``.
     window_size : int
         Size of the window to use for the signature.
     hop_size : int
@@ -496,3 +502,56 @@ def windowed_log_signature(
     projected = projector(log_sig_tensors, width, depth)
 
     return projected.reshape(batch_windows, num_windows, -1)
+
+
+
+def signature_to_logsignature(
+    signature: Tensor,
+    depth: int,
+    mode: str = "words",
+) -> Tensor:
+    """Convert signature to log-signature.
+
+    Parameters
+    ----------
+    signature: Tensor
+        Signature tensor with arbitrary leading batch/window dimensions and
+        trailing dimension equal to the flattened signature size
+        ``width + width^2 + ... + width^depth``. This includes outputs from
+        :func:`signature`, :func:`windowed_signature`, or any precomputed
+        flattened signature with that final dimension.
+    depth: int
+        Depth of the log-signature.
+    mode: str, optional
+        Basis for the log-signature coordinates: "words" (default) or "hall".
+
+    Returns
+    -------
+    Tensor
+        Log-signature tensor with the same leading shape as ``signature`` but
+        with the last dimension replaced by the log-signature dimension
+        (``logsigdim`` or ``logsigdim_words`` depending on ``mode``).
+    """
+    mode = (mode or "words").lower()
+    if mode not in {"hall", "words"}:
+        raise ValueError(f"Unsupported mode '{mode}'. Use 'hall' or 'words'.")
+
+    if signature.ndim < 2:
+        raise ValueError(
+            "signature tensor must have at least one batch dimension "
+            "and a trailing signature dimension."
+        )
+
+    sigdim = signature.shape[-1]
+    width = _infer_width_from_signature_dim(sigdim, depth)
+
+    leading_shape = signature.shape[:-1]
+    flat = signature.reshape(-1, sigdim)
+
+    sig_tensors = _unflatten_signature(flat, width, depth)
+    log_sig_tensors = _signature_to_logsignature_tensor(sig_tensors, width, depth)
+
+    projector = _project_to_hall_basis if mode == "hall" else _project_to_words_basis
+    projected = projector(log_sig_tensors, width, depth)
+
+    return projected.reshape(*leading_shape, projected.shape[-1])

@@ -54,7 +54,7 @@ sig = signature(path, depth=2)
 print(sig.shape)           # torch.Size([1, 6]) = sum(width**k for k in 1..depth)
 
 log_sig = log_signature(path, depth=2)
-print(log_sig.shape)       # torch.Size([1, 3]) = logsigdim(2, 2)
+print(log_sig.shape)       # torch.Size([1, 3]) = logsigdim_words(2, 2)
 print("logsigdim_words:", logsigdim_words(2, 2))  # 3
 
 # Lyndon words coordinates (Signatory-style)

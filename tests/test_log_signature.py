@@ -15,6 +15,8 @@ from log_signatures_pytorch.log_signature import (
     _signature_to_logsignature_tensor,
     _unflatten_signature,
     log_signature,
+    signature_to_logsignature,
+    windowed_log_signature,
 )
 from log_signatures_pytorch.hall_projection import (
     _hall_basis_tensors,
@@ -22,7 +24,7 @@ from log_signatures_pytorch.hall_projection import (
     _project_to_hall_basis,
 )
 from log_signatures_pytorch.lyndon_words import _project_to_words_basis
-from log_signatures_pytorch.signature import signature
+from log_signatures_pytorch.signature import signature, windowed_signature
 from log_signatures_pytorch.tensor_ops import batch_lie_brackets, lie_brackets
 
 
@@ -401,6 +403,57 @@ class TestLogSignature:
         assert log_sig.shape[1] == log_sig_dim
         assert sig.shape[1] == sig_dim
         assert log_sig_dim < sig_dim  # Log-signature should be smaller
+
+    @pytest.mark.parametrize("mode", ["hall", "words"])
+    def test_signature_to_logsignature_matches_log_signature(self, mode: str):
+        path = torch.tensor(
+            [[[0.0, 0.0], [1.0, 0.5], [0.5, 1.5]]], dtype=torch.float64
+        )
+        depth = 3
+
+        precomputed_sig = signature(path, depth=depth)
+        from_sig = signature_to_logsignature(precomputed_sig, depth=depth, mode=mode)
+        direct = log_signature(path, depth=depth, mode=mode)
+
+        torch.testing.assert_close(from_sig, direct, atol=1e-8, rtol=1e-6)
+
+    @pytest.mark.parametrize("mode", ["hall", "words"])
+    def test_signature_to_logsignature_streaming(self, mode: str):
+        path = torch.tensor(
+            [[[0.0, 0.0], [0.5, -0.5], [1.0, 0.25]]], dtype=torch.float64
+        )
+        depth = 2
+
+        sig_stream = signature(path, depth=depth, stream=True)
+        from_sig = signature_to_logsignature(sig_stream, depth=depth, mode=mode)
+        direct = log_signature(path, depth=depth, mode=mode, stream=True)
+
+        torch.testing.assert_close(from_sig, direct, atol=1e-8, rtol=1e-6)
+        assert from_sig.shape == direct.shape
+
+    @pytest.mark.parametrize("mode", ["hall", "words"])
+    def test_signature_to_logsignature_windowed(self, mode: str):
+        path = torch.tensor(
+            [[[0.0, 0.0], [0.4, 0.1], [0.8, 0.2], [1.0, 0.5]]], dtype=torch.float64
+        )
+        depth = 2
+        window_size = 3
+        hop_size = 1
+
+        window_sig = windowed_signature(
+            path, depth=depth, window_size=window_size, hop_size=hop_size
+        )
+        from_sig = signature_to_logsignature(window_sig, depth=depth, mode=mode)
+        direct = windowed_log_signature(
+            path,
+            depth=depth,
+            window_size=window_size,
+            hop_size=hop_size,
+            mode=mode,
+        )
+
+        torch.testing.assert_close(from_sig, direct, atol=1e-8, rtol=1e-6)
+        assert from_sig.shape == direct.shape
 
     def test_log_signature_raises_on_2d_input(self):
         path = torch.zeros(3, 2)

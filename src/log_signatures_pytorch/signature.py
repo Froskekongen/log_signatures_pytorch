@@ -140,6 +140,112 @@ def _signature_multiply(left: list[Tensor], right: list[Tensor]) -> list[Tensor]
     return product
 
 
+def _infer_width_from_signature_dim(sigdim: int, depth: int) -> int:
+    """Infer path width from flattened signature dimension."""
+    if depth < 1:
+        raise ValueError("depth must be at least 1.")
+
+    width = 1
+    while True:
+        total = 0
+        power = width
+        for _ in range(depth):
+            total += power
+            power *= width
+
+        if total == sigdim:
+            return width
+
+        if total > sigdim or width > sigdim:
+            raise ValueError(
+                f"Signature dimension {sigdim} is incompatible with depth {depth}."
+            )
+
+        width += 1
+
+
+def stream_to_window_signatures(
+    signature: Tensor,
+    depth: int,
+    window_size: int,
+    hop_size: int,
+) -> Tensor:
+    """Compute sliding-window signatures from a stream-computed signature.
+
+    This function applies Chen's identity to a pre-computed stream of signatures
+    to obtain signatures for sliding windows.
+
+    Parameters
+    ----------
+    signature : Tensor
+        Tensor of shape ``(batch, length-1, dim_sum)`` containing signatures
+        at each step along the path, as returned by :func:`signature(..., stream=True)`.
+    depth : int
+        Maximum depth of the signatures.
+    window_size : int
+        Number of path points per window.
+    hop_size : int
+        Step between consecutive window starts.
+
+    Returns
+    -------
+    Tensor
+        Tensor of shape ``(batch, num_windows, dim_sum)`` containing the
+        signature of each window.
+    """
+    if signature.ndim != 3:
+        raise ValueError(
+            "Signature must be a 3D tensor of shape "
+            f"(batch, length-1, sigdim) as returned by signature(..., stream=True); "
+            f"got {signature.shape}."
+        )
+
+    batch_size, stream_len, sig_dim = signature.shape
+    seq_len = stream_len + 1  # Original path length
+
+    if window_size < 2:
+        raise ValueError("window_size must be at least 2 to form non-empty increments.")
+    if hop_size < 1:
+        raise ValueError("hop_size must be positive.")
+    if seq_len < window_size:
+        raise ValueError("window_size cannot exceed the path length.")
+
+    width = _infer_width_from_signature_dim(sig_dim, depth)
+
+    prefix_levels = _unflatten_stream_signature(signature, width=width, depth=depth)
+    device = signature.device
+    dtype = signature.dtype
+    num_windows = 1 + (seq_len - window_size) // hop_size
+
+    # Insert the identity signature at time 0 (all higher levels zero).
+    for idx, level in enumerate(prefix_levels):
+        zeros_shape = (batch_size, 1) + (width,) * (idx + 1)
+        prefix_levels[idx] = torch.cat(
+            [torch.zeros(zeros_shape, device=device, dtype=dtype), level], dim=1
+        )
+
+    start_indices = torch.arange(num_windows, device=device) * hop_size
+    end_indices = start_indices + window_size - 1
+
+    # Gather start/end signatures for all windows and merge (batch, window) into a single axis.
+    start_levels: list[Tensor] = []
+    end_levels: list[Tensor] = []
+    for level in prefix_levels:
+        start_levels.append(level[:, start_indices, ...].reshape(-1, *level.shape[2:]))
+        end_levels.append(level[:, end_indices, ...].reshape(-1, *level.shape[2:]))
+
+    inv_start = _signature_inverse(start_levels)
+    window_levels = _signature_multiply(inv_start, end_levels)
+
+    # Reshape back to (batch, num_windows, ...) and flatten level blocks.
+    flattened = []
+    for idx, level in enumerate(window_levels):
+        reshaped = level.reshape(batch_size, num_windows, -1)
+        flattened.append(reshaped)
+
+    return torch.cat(flattened, dim=2)
+
+
 def windowed_signature(
     path: Tensor,
     depth: int,
@@ -200,41 +306,9 @@ def windowed_signature(
     if seq_len < window_size:
         raise ValueError("window_size cannot exceed the path length.")
 
-    num_windows = 1 + (seq_len - window_size) // hop_size
-
     stream = signature(path, depth=depth, stream=True, gpu_optimized=gpu_optimized)
 
-    prefix_levels = _unflatten_stream_signature(stream, width=width, depth=depth)
-    device = path.device
-    dtype = path.dtype
-
-    # Insert the identity signature at time 0 (all higher levels zero).
-    for idx, level in enumerate(prefix_levels):
-        zeros_shape = (batch_size, 1) + (width,) * (idx + 1)
-        prefix_levels[idx] = torch.cat(
-            [torch.zeros(zeros_shape, device=device, dtype=dtype), level], dim=1
-        )
-
-    start_indices = torch.arange(num_windows, device=device) * hop_size
-    end_indices = start_indices + window_size - 1
-
-    # Gather start/end signatures for all windows and merge (batch, window) into a single axis.
-    start_levels: list[Tensor] = []
-    end_levels: list[Tensor] = []
-    for level in prefix_levels:
-        start_levels.append(level[:, start_indices, ...].reshape(-1, *level.shape[2:]))
-        end_levels.append(level[:, end_indices, ...].reshape(-1, *level.shape[2:]))
-
-    inv_start = _signature_inverse(start_levels)
-    window_levels = _signature_multiply(inv_start, end_levels)
-
-    # Reshape back to (batch, num_windows, ...) and flatten level blocks.
-    flattened = []
-    for idx, level in enumerate(window_levels):
-        reshaped = level.reshape(batch_size, num_windows, -1)
-        flattened.append(reshaped)
-
-    return torch.cat(flattened, dim=2)
+    return stream_to_window_signatures(stream, depth, window_size, hop_size)
 
 
 def _batch_signature(
