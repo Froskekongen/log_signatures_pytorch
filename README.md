@@ -155,9 +155,10 @@ The documentation will be available at `http://127.0.0.1:8000` when serving loca
 ## References
 
 - esig: https://github.com/datasig-ac-uk/esig
-- signatory: https://github.com/patrick-kidger/signatory
-- keras-sig: https://github.com/remigenet/keras_sig
-- Hall basis: "On the bases of free Lie algebras". M. Hall (1950)
+
+Kidger, Patrick and Lyons, Terry, Signatory: differentiable computations of the signature and logsignature transforms, on both CPU and GPU, ICLR 2021.  Repository: https://github.com/patrick-kidger/signatory
+
+Genet, R., & Inzirillo, H. (2025). Keras sig: Efficient path signature computation on gpu in keras 3. arXiv preprint arXiv:2501.08455. Repository: https://github.com/remigenet/keras_sig
 
 ## License
 
