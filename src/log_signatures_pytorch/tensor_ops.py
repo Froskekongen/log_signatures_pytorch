@@ -210,6 +210,43 @@ def batch_add_tensor_product(x: Tensor, y: Tensor, z: Tensor) -> Tensor:
     return _add_tensor_product(x, y, z, shared_dims=1)
 
 
+def batch_sequence_add_tensor_product(x: Tensor, y: Tensor, z: Tensor) -> Tensor:
+    """Batched sequence version of x + y ⊗ z preserving (batch, sequence) axes.
+
+    Computes the affine tensor product while preserving the first two dimensions
+    (batch and sequence), allowing per-step affine tensor products in sequence
+    processing.
+
+    Parameters
+    ----------
+    x : Tensor
+        Tensor shaped ``(batch, sequence, ...)``.
+    y : Tensor
+        Tensor shaped ``(batch, sequence, ...)``.
+    z : Tensor
+        Tensor shaped ``(batch, sequence, ...)``.
+
+    Returns
+    -------
+    Tensor
+        Tensor shaped ``(batch, sequence, *x.shape[2:], *y.shape[2:], *z.shape[2:])``
+        (after broadcasting).
+
+    Examples
+    --------
+    >>> import torch
+    >>> from log_signatures_pytorch.tensor_ops import batch_sequence_add_tensor_product
+    >>>
+    >>> x = torch.randn(2, 3, 2, 2)  # (batch=2, sequence=3, width=2, width=2)
+    >>> y = torch.randn(2, 3, 2)  # (batch=2, sequence=3, width=2)
+    >>> z = torch.randn(2, 3, 2)  # (batch=2, sequence=3, width=2)
+    >>> result = batch_sequence_add_tensor_product(x, y, z)
+    >>> result.shape
+    torch.Size([2, 3, 2, 2])
+    """
+    return _add_tensor_product(x, y, z, shared_dims=2)
+
+
 def batch_restricted_exp(input: Tensor, depth: int) -> list[Tensor]:
     """Batched truncated tensor exponential with a shared batch axis.
 
