@@ -91,8 +91,7 @@ This document outlines the mathematical properties that should hold for each fun
 
 ### Functions to Verify:
 - `log_signature(path, depth)`: Main API function
-- `_batch_log_signature(path, depth)`: CPU implementation
-- `_batch_log_signature_gpu(path, depth)`: GPU implementation
+- `_batch_log_signature(path, depth)`: Signature→log pipeline implementation
 - `_signature_to_logsignature_tensor(sig_tensors, width, depth)`: Conversion function
 - `_project_to_hall_basis(log_sig_tensors, width, depth)`: Projection function
 

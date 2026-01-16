@@ -12,22 +12,20 @@ basis relates their coordinates.
 """
 
 from functools import lru_cache
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 from torch import Tensor
 
 from .hall_bch import HallBCH, sparse_bch_supports_depth
-from .hall_projection import _project_to_hall_basis, logsigdim
+from .hall_projection import _project_to_hall_basis
 from .lyndon_words import (
     _project_to_words_basis,
-    lyndon_words,
-    logsigdim_words,
 )
 from .signature import (
+    _infer_width_from_signature_dim,
     signature,
     windowed_signature,
-    _infer_width_from_signature_dim,
 )
 from .tensor_ops import batch_tensor_product
 
@@ -147,7 +145,6 @@ def _batch_log_signature(
     path: Tensor,
     depth: int,
     stream: bool = False,
-    gpu_optimized: Optional[bool] = None,
     mode: str = "words",
 ) -> Tensor:
     """Compute log-signatures via signature→log pipeline for batched paths.
@@ -164,9 +161,6 @@ def _batch_log_signature(
         Maximum depth to truncate log-signature computation.
     stream : bool, optional
         If True, computed log-signatures are returned for each step. Default is False.
-    gpu_optimized : bool, optional
-        Forwarded to :func:`signature`; defaults to GPU path when the input is on CUDA.
-        Default is None.
     mode : str, optional
         Basis for the output coordinates: ``"words"`` (default) or ``"hall"``.
 
@@ -193,7 +187,6 @@ def _batch_log_signature(
         path,
         depth=depth,
         stream=stream,
-        gpu_optimized=gpu_optimized,
     )
 
     projector = _project_to_hall_basis if mode == "hall" else _project_to_words_basis
@@ -291,7 +284,6 @@ def log_signature(
     path: Tensor,
     depth: int,
     stream: bool = False,
-    gpu_optimized: Optional[bool] = None,
     method: str = "default",
     mode: str = "words",
 ) -> Tensor:
@@ -314,10 +306,6 @@ def log_signature(
         ``logsigdim_words(dim, depth)`` for ``mode="words"``.
     stream : bool, optional
         If True, computed log-signatures are returned for each step. Default is False.
-    gpu_optimized : bool, optional
-        If True, use GPU-optimized implementation. If None, auto-detect
-        (defaults to True when the input is on CUDA). Ignored for the BCH path.
-        Default is None.
     method : str, optional
         Computation method: "default" (signature then log) or "bch_sparse"
         (sparse Hall-BCH, supported for depth <= 4). For higher depths,
@@ -348,6 +336,7 @@ def log_signature(
     --------
     >>> import torch
     >>> from log_signatures_pytorch import log_signature, logsigdim
+    >>> from log_signatures_pytorch.lyndon_words import logsigdim_words
     >>>
     >>> # Single path (add batch dimension)
     >>> path = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]).unsqueeze(0)
@@ -396,7 +385,6 @@ def log_signature(
                 path,
                 depth=depth,
                 stream=stream,
-                gpu_optimized=gpu_optimized,
                 mode=mode,
             )
         else:
@@ -410,7 +398,6 @@ def log_signature(
             path,
             depth=depth,
             stream=stream,
-            gpu_optimized=gpu_optimized,
             mode=mode,
         )
     else:
@@ -426,7 +413,6 @@ def windowed_log_signature(
     depth: int,
     window_size: int,
     hop_size: int,
-    gpu_optimized: Optional[bool] = None,
     mode: str = "words",
 ) -> Tensor:
     """Sliding-window log-signatures via windowed signatures + projection.
@@ -449,10 +435,6 @@ def windowed_log_signature(
         Size of the window to use for the signature.
     hop_size : int
         Hop size to use for the signature.
-    gpu_optimized : bool, optional
-        If True, use GPU-optimized implementation. If None, auto-detect
-        (defaults to True when the input is on CUDA). Ignored for the BCH path.
-        Default is None.
     mode : str, optional
         Basis for the log-signature coordinates: "words" (default) or "hall".
         "words" is only available with ``method=\"default\"``.
@@ -489,7 +471,6 @@ def windowed_log_signature(
         depth=depth,
         window_size=window_size,
         hop_size=hop_size,
-        gpu_optimized=gpu_optimized,
     )  # (batch, num_windows, sigdim)
 
     batch_windows, num_windows = batch, window_sig.shape[1]
@@ -502,7 +483,6 @@ def windowed_log_signature(
     projected = projector(log_sig_tensors, width, depth)
 
     return projected.reshape(batch_windows, num_windows, -1)
-
 
 
 def signature_to_logsignature(

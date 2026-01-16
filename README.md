@@ -121,7 +121,6 @@ print(logsigkeys_words(width=2, depth=3))
 
 ### Choosing computation mode
 
-- `gpu_optimized`: defaults to True when the input tensor is on CUDA. Set False to force the CPU scan path.
 - `method`: `log_signature(..., method="bch_sparse")` uses the incremental BCH routine for depths supported by `HallBCH` (depth ≤ 4); otherwise it falls back to the default path.
 - `mode`: `log_signature(..., mode="words"|"hall")` chooses the coordinate basis. Default is `"words"`. BCH currently requires `mode="hall"`; the default path supports both.
 
@@ -129,9 +128,9 @@ Signature outputs exclude the empty word (dimension is `sum(width**k for k=1..de
 
 ### GPU compile recommendations
 
-- For fixed shapes with many repeated calls, `torch.compile` with mode `reduce-overhead` gives the fastest runtime for `_batch_signature_gpu` (~0.08–0.12 ms in our sweeps) and for `log_signature` (similarly sized speedups). First-call compile time can be large—especially for log-signatures—so cache per shape if you need to reuse compiled artifacts.
+- For fixed shapes with many repeated calls, `torch.compile` with mode `reduce-overhead` gives the fastest runtime for `signature` (~0.08–0.12 ms in our sweeps) and for `log_signature` (similarly sized speedups). First-call compile time can be large—especially for log-signatures—so cache per shape if you need to reuse compiled artifacts.
 - For workloads with many varying shapes or when compile latency matters more than per-call speed, prefer `none` (no compile) or the lighter `default` mode. `default` is slower than `reduce-overhead` at runtime but compiles much faster; this tradeoff is more pronounced for log-signatures.
-- The benchmark helper `benchmarks/benchmark_batch_signature_gpu.py` supports `--target signature|log_signature`, `--compile-modes none reduce-overhead default`, `--measure-compile-time`, and per-shape compile caching. CSVs land under `benchmarks/results/` by default.
+- The benchmark helper `benchmarks/benchmark_batch_signature.py` supports `--target signature|log_signature`, `--compile-modes none reduce-overhead default`, `--measure-compile-time`, and per-shape compile caching. CSVs land under `benchmarks/results/` by default.
 
 ## Testing and verification
 

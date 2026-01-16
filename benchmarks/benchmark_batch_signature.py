@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Benchmark the GPU-oriented batched signature kernel.
+"""Benchmark batched signatures/log-signatures.
 
-This script targets `_batch_signature_gpu` directly to stress the CUDA path
-over a grid of widths, depths, sequence lengths, and batch sizes.
+This script sweeps widths, depths, sequence lengths, and batch sizes using the
+fast signature implementation on both CPU and CUDA.
 """
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ def _make_signature_fn(
     reset_dynamo: bool,
     target: str,
     mode: str,
-    gpu_optimized: bool | None,
 ):
     compiled = compile_mode != "none"
 
@@ -43,19 +42,13 @@ def _make_signature_fn(
 
         def fn(path: torch.Tensor) -> torch.Tensor:
             if target == "signature":
-                return signature(
-                    path,
-                    depth=depth,
-                    stream=stream,
-                    gpu_optimized=gpu_optimized,
-                )
+                return signature(path, depth=depth, stream=stream)
             return log_signature(
                 path,
                 depth=depth,
                 stream=stream,
                 method="default",
                 mode=mode,
-                gpu_optimized=gpu_optimized,
             )
 
         return fn
@@ -68,19 +61,13 @@ def _make_signature_fn(
 
     def fn(path: torch.Tensor) -> torch.Tensor:
         if target == "signature":
-            return signature(
-                path,
-                depth=depth,
-                stream=stream,
-                gpu_optimized=gpu_optimized,
-            )
+            return signature(path, depth=depth, stream=stream)
         return log_signature(
             path,
             depth=depth,
             stream=stream,
             method="default",
             mode=mode,
-            gpu_optimized=gpu_optimized,
         )
 
     if cache_compiles:
@@ -125,11 +112,10 @@ def benchmark(
     measure_compile_time: bool,
     target: str,
     mode: str,
-    gpu_optimized: bool | None,
 ) -> List[dict]:
     header = (
-        "width depth length batch stream compiled compile_mode target basis gpu_optimized dtype "
-        "device ms_per_call compile_ms"
+        "width depth length batch stream compiled compile_mode target basis dtype device "
+        "ms_per_call compile_ms"
     )
     print(header)
     records: List[dict] = []
@@ -152,7 +138,6 @@ def benchmark(
                             reset_dynamo=reset_dynamo,
                             target=target,
                             mode=mode,
-                            gpu_optimized=gpu_optimized,
                         )
                         path = generate_paths(
                             batch=batch,
@@ -187,7 +172,6 @@ def benchmark(
                             "compile_mode": compile_mode if compiled else "none",
                             "target": target,
                             "basis": mode if target == "log_signature" else "n/a",
-                            "gpu_optimized": gpu_optimized,
                             "dtype": str(dtype).replace("torch.", ""),
                             "device": device.type,
                             "ms_per_call": elapsed * 1e3,
@@ -197,17 +181,15 @@ def benchmark(
                         print(
                             f"{width:>5} {depth:>5} {length:>6} {batch:>5} "
                             f"{str(stream):>6} {str(compiled):>8} {record['compile_mode'][:12]:>12} "
-                            f"{target[:4]:>6} {record['basis'][:5]:>6} {str(record['gpu_optimized']):>13} "
-                            f"{record['dtype']:>7} {record['device']:>6} "
+                            f"{target[:4]:>6} {record['basis'][:5]:>6} {record['dtype']:>7} "
+                            f"{record['device']:>6} "
                             f"{record['ms_per_call']:10.3f} {record['compile_ms']:10.3f}"
                         )
     return records
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Benchmark GPU batched signature kernel."
-    )
+    parser = argparse.ArgumentParser(description="Benchmark batched signature kernel.")
     parser.add_argument(
         "--widths",
         type=int,
@@ -323,12 +305,6 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         default="hall",
         help="Basis for log-signature target (ignored when --target=signature).",
     )
-    parser.add_argument(
-        "--gpu-optimized",
-        choices=["auto", "true", "false"],
-        default="auto",
-        help="Force the gpu_optimized flag when calling signature/log_signature.",
-    )
     return parser.parse_args(argv)
 
 
@@ -339,11 +315,6 @@ def main() -> None:
     if device.type == "cuda" and not torch.cuda.is_available():
         raise SystemExit("CUDA requested but not available.")
     dtype = torch.float32 if args.dtype == "float32" else torch.float64
-    gpu_optimized = None
-    if args.gpu_optimized == "true":
-        gpu_optimized = True
-    elif args.gpu_optimized == "false":
-        gpu_optimized = False
     records = benchmark(
         widths=args.widths,
         lengths=args.lengths,
@@ -362,7 +333,6 @@ def main() -> None:
         measure_compile_time=args.measure_compile_time,
         target=args.target,
         mode=args.mode,
-        gpu_optimized=gpu_optimized,
     )
     if args.output_csv:
         import csv
@@ -384,7 +354,6 @@ def main() -> None:
             "compile_mode",
             "target",
             "basis",
-            "gpu_optimized",
             "dtype",
             "device",
             "ms_per_call",

@@ -9,15 +9,11 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Literal
 
 import torch
 
 from log_signatures_pytorch.signature import signature
 from log_signatures_pytorch.log_signature import log_signature
-
-
-GpuMode = Literal["auto", "on", "off"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,12 +35,6 @@ def parse_args() -> argparse.Namespace:
         help="Return the signature at every step instead of only the final value.",
     )
     parser.add_argument(
-        "--gpu-optimized",
-        choices=["auto", "on", "off"],
-        default="auto",
-        help="Use the GPU-optimized parallel implementation ('auto' picks CUDA when available).",
-    )
-    parser.add_argument(
         "--target",
         choices=["signature", "log_signature"],
         default="log_signature",
@@ -58,15 +48,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_gpu_mode(mode: GpuMode) -> bool:
-    if mode == "on":
-        return True
-    if mode == "off":
-        return False
-    # Auto: prefer CUDA when available; otherwise use the CPU-friendly path.
-    return torch.cuda.is_available()
-
-
 def main() -> None:
     args = parse_args()
 
@@ -76,18 +57,14 @@ def main() -> None:
     device = torch.device(args.device)
     path = torch.randn(args.length, args.dim, device=device).unsqueeze(0)
 
-    gpu_optimized = resolve_gpu_mode(args.gpu_optimized)
     if args.target == "signature":
-        result = signature(
-            path, depth=args.depth, stream=args.stream, gpu_optimized=gpu_optimized
-        )
+        result = signature(path, depth=args.depth, stream=args.stream)
         feature_count = sum(args.dim**i for i in range(1, args.depth + 1))
     else:
         result = log_signature(
             path,
             depth=args.depth,
             stream=args.stream,
-            gpu_optimized=gpu_optimized,
             mode="words",
             method="default",
         )
@@ -104,10 +81,6 @@ def main() -> None:
     flat = result.flatten()
     preview = flat[: min(8, flat.numel())]
     print("Preview:", preview.cpu().numpy())
-    if gpu_optimized:
-        print("Used GPU-optimized path implementation.")
-    else:
-        print("Used CPU-friendly scan implementation.")
 
 
 if __name__ == "__main__":
