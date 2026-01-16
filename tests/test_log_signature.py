@@ -406,9 +406,7 @@ class TestLogSignature:
 
     @pytest.mark.parametrize("mode", ["hall", "words"])
     def test_signature_to_logsignature_matches_log_signature(self, mode: str):
-        path = torch.tensor(
-            [[[0.0, 0.0], [1.0, 0.5], [0.5, 1.5]]], dtype=torch.float64
-        )
+        path = torch.tensor([[[0.0, 0.0], [1.0, 0.5], [0.5, 1.5]]], dtype=torch.float64)
         depth = 3
 
         precomputed_sig = signature(path, depth=depth)

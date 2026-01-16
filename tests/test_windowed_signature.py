@@ -61,6 +61,8 @@ def test_stream_to_window_signatures_matches_windowed_signature():
 
     stream = signature(path, depth=depth, stream=True)
     actual = stream_to_window_signatures(stream, depth, window_size, hop_size)
-    expected = windowed_signature(path, depth=depth, window_size=window_size, hop_size=hop_size)
+    expected = windowed_signature(
+        path, depth=depth, window_size=window_size, hop_size=hop_size
+    )
 
     torch.testing.assert_close(actual, expected)
