@@ -12,15 +12,10 @@ basis relates their coordinates.
 """
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Tuple
+from typing import Tuple
 
 import torch
 from torch import Tensor
-
-if TYPE_CHECKING:
-    from typing import cast
-else:
-    cast = lambda t, x: x  # noqa: E731
 
 from .hall_bch import HallBCH, sparse_bch_supports_depth
 from .hall_projection import _project_to_hall_basis
@@ -173,15 +168,13 @@ def _batch_log_signature(
     batch_size, seq_len, n_features = path.shape
 
     if sparse:
-        sig_result = signature_sparse(
+        sig = signature_sparse(
             path,
             depth=depth,
             stream=stream,
             eps=eps,
             lengths=lengths,
         )
-        # signature_sparse returns Tensor when return_levels=False (default)
-        sig = cast(Tensor, sig_result)
     else:
         sig = signature(
             path,
