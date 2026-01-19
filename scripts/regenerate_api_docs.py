@@ -19,6 +19,7 @@ MODULES = [
     "hall_bch",
     "tensor_ops",
     "bch_coefficients",
+    "sparse_signature",
 ]
 
 TITLE_OVERRIDES = {

@@ -36,12 +36,21 @@ torch.Size([1, 3])
 """
 
 from .hall_projection import hall_basis, logsigdim, logsigkeys
-from .lyndon_words import lyndon_words, logsigdim_words, logsigkeys_words
 from .log_signature import log_signature, windowed_log_signature
-from .signature import signature, windowed_signature, stream_to_window_signatures
+from .lyndon_words import logsigdim_words, logsigkeys_words, lyndon_words
+from .signature import (
+    signature,
+    signature_inverse,
+    signature_multiply,
+    stream_to_window_signatures,
+    windowed_signature,
+)
+from .sparse_signature import pad_paths_correctly, signature_sparse
 
 __all__ = [
     "signature",
+    "signature_inverse",
+    "signature_multiply",
     "windowed_signature",
     "stream_to_window_signatures",
     "log_signature",
@@ -52,4 +61,6 @@ __all__ = [
     "logsigdim_words",
     "logsigkeys_words",
     "lyndon_words",
+    "signature_sparse",
+    "pad_paths_correctly",
 ]

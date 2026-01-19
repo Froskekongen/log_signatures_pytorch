@@ -83,23 +83,127 @@ def _signature_level_sizes(width: int, depth: int) -> list[int]:
     return [width**k for k in range(1, depth + 1)]
 
 
-def _unflatten_stream_signature(
-    stream_sig: Tensor, width: int, depth: int
-) -> list[Tensor]:
-    batch, steps, _ = stream_sig.shape
-    sizes = _signature_level_sizes(width, depth)
-    levels: list[Tensor] = []
+def _unflatten_signature(sig: Tensor, width: int, depth: int) -> list[Tensor]:
+    """Reshape flattened signature blocks into per-depth tensors.
+
+    Converts a flattened signature tensor into a list of tensors, one for each
+    depth level, where each tensor has the appropriate shape for tensor algebra
+    operations.
+
+    Parameters
+    ----------
+    sig : Tensor
+        Flattened signature of shape ``(batch, sum(width**k for k=1..depth))``.
+    width : int
+        Path dimension (number of features).
+    depth : int
+        Truncation depth.
+
+    Returns
+    -------
+    list[Tensor]
+        List of length ``depth`` where entry ``k`` has shape
+        ``(batch, width, ..., width)`` with ``k+1`` trailing width axes.
+
+    Notes
+    -----
+    This is an internal function used to reshape signatures before converting
+    to log-signatures.
+    """
+    if sig.ndim != 2:
+        raise ValueError(
+            f"Signature must be a 2D tensor of shape (batch, sigdim); got {sig.shape}."
+        )
+
+    batch = sig.shape[0]
+    tensors: list[Tensor] = []
     offset = 0
-    for idx, size in enumerate(sizes):
-        chunk = stream_sig[:, :, offset : offset + size]
-        shape = (batch, steps) + (width,) * (idx + 1)
-        levels.append(chunk.reshape(*shape))
+    for current_depth in range(1, depth + 1):
+        size = width**current_depth
+        chunk = sig[:, offset : offset + size]
+        shape = (batch,) + (width,) * current_depth
+        tensors.append(chunk.reshape(*shape))
         offset += size
-    return levels
+    return tensors
 
 
-def _signature_inverse(levels: list[Tensor]) -> list[Tensor]:
-    """Inverse of a truncated signature via Chen's recursion."""
+def _unflatten_stream_signature(
+    sign_tensor: Tensor, width: int, depth: int
+) -> list[Tensor]:
+    """Unflatten a signature tensor into level tensors.
+
+    This is the stream variant of :func:`_unflatten_signature` and only accepts
+    stream signatures of shape ``(batch, steps, sigdim)``.
+
+    Parameters
+    ----------
+    sign_tensor : Tensor
+        Stream signature tensor of shape ``(batch, steps, sigdim)``.
+    width : int
+        Path width (dimension).
+    depth : int
+        Signature depth.
+
+    Returns
+    -------
+    list[Tensor]
+        List of length ``depth`` where entry ``k`` has shape
+        ``(batch, steps, width, ..., width)`` with ``k+1`` trailing width dimensions.
+    """
+    if sign_tensor.ndim != 3:
+        raise ValueError(
+            "Stream signature must be a 3D tensor of shape (batch, steps, sigdim); "
+            f"got {sign_tensor.shape}."
+        )
+
+    # Stream signature: (batch, steps, sigdim)
+    batch, steps, _ = sign_tensor.shape
+    # Reshape to 2D: (batch*steps, sigdim)
+    flattened = sign_tensor.reshape(batch * steps, -1)
+    # Unflatten to per-level tensors, then restore (batch, steps, ...) shape.
+    levels = _unflatten_signature(flattened, width, depth)
+    reshaped_levels: list[Tensor] = []
+    for level in levels:
+        level_shape = level.shape  # (batch*steps, width, ..., width)
+        reshaped_levels.append(level.reshape((batch, steps) + level_shape[1:]))
+    return reshaped_levels
+
+
+def signature_inverse(levels: list[Tensor]) -> list[Tensor]:
+    """Inverse of a truncated signature via Chen's recursion.
+
+    Computes the inverse of a signature represented as a list of level tensors,
+    where each level corresponds to a depth in the truncated signature series.
+    The inverse is computed recursively using Chen's identity.
+
+    Parameters
+    ----------
+    levels : list[Tensor]
+        List of tensors representing the signature levels. Each tensor at index
+        ``k`` should have shape ``(batch, width, ..., width)`` with ``k+1``
+        trailing width dimensions, where ``width`` is the path dimension.
+
+    Returns
+    -------
+    list[Tensor]
+        List of tensors representing the inverse signature, with the same structure
+        as the input ``levels``.
+
+    Examples
+    --------
+    >>> import torch
+    >>> from log_signatures_pytorch.signature import signature_inverse
+    >>>
+    >>> # Create a simple signature (depth=2, width=2)
+    >>> level1 = torch.tensor([[[1.0, 2.0]]])  # (batch=1, width=2)
+    >>> level2 = torch.tensor([[[[0.5, 0.3], [0.2, 0.1]]]])  # (batch=1, width=2, width=2)
+    >>> levels = [level1, level2]
+    >>>
+    >>> # Compute inverse
+    >>> inv_levels = signature_inverse(levels)
+    >>> len(inv_levels)
+    2
+    """
     inverse: list[Tensor] = []
     for depth_index, level in enumerate(levels):
         current = -level
@@ -111,8 +215,53 @@ def _signature_inverse(levels: list[Tensor]) -> list[Tensor]:
     return inverse
 
 
-def _signature_multiply(left: list[Tensor], right: list[Tensor]) -> list[Tensor]:
-    """Chen product of two truncated signatures."""
+def signature_multiply(left: list[Tensor], right: list[Tensor]) -> list[Tensor]:
+    """Chen product of two truncated signatures.
+
+    Computes the product of two signatures represented as lists of level tensors
+    using Chen's identity. This corresponds to the signature of the concatenation
+    of two paths.
+
+    Parameters
+    ----------
+    left : list[Tensor]
+        List of tensors representing the first signature levels. Each tensor at
+        index ``k`` should have shape ``(batch, width, ..., width)`` with ``k+1``
+        trailing width dimensions.
+    right : list[Tensor]
+        List of tensors representing the second signature levels, with the same
+        structure as ``left``.
+
+    Returns
+    -------
+    list[Tensor]
+        List of tensors representing the product signature, with the same structure
+        as the input signatures.
+
+    Raises
+    ------
+    ValueError
+        If ``left`` and ``right`` have different lengths (different depths).
+
+    Examples
+    --------
+    >>> import torch
+    >>> from log_signatures_pytorch.signature import signature_multiply
+    >>>
+    >>> # Create two signatures (depth=2, width=2)
+    >>> left_level1 = torch.tensor([[[1.0, 2.0]]])
+    >>> left_level2 = torch.tensor([[[[0.5, 0.3], [0.2, 0.1]]]])
+    >>> left = [left_level1, left_level2]
+    >>>
+    >>> right_level1 = torch.tensor([[[0.5, 1.0]]])
+    >>> right_level2 = torch.tensor([[[[0.2, 0.1], [0.1, 0.05]]]])
+    >>> right = [right_level1, right_level2]
+    >>>
+    >>> # Compute product
+    >>> product = signature_multiply(left, right)
+    >>> len(product)
+    2
+    """
     if len(left) != len(right):
         raise ValueError("Signatures must have the same depth for multiplication.")
 
@@ -221,8 +370,8 @@ def stream_to_window_signatures(
         start_levels.append(level[:, start_indices, ...].reshape(-1, *level.shape[2:]))
         end_levels.append(level[:, end_indices, ...].reshape(-1, *level.shape[2:]))
 
-    inv_start = _signature_inverse(start_levels)
-    window_levels = _signature_multiply(inv_start, end_levels)
+    inv_start = signature_inverse(start_levels)
+    window_levels = signature_multiply(inv_start, end_levels)
 
     # Reshape back to (batch, num_windows, ...) and flatten level blocks.
     flattened = []
