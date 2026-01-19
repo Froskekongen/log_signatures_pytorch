@@ -39,7 +39,9 @@ def benchmark_sparse_vs_naive(
     # Create base path (random walk)
     base_increments = torch.randn(batch_size, path_length, width, device=device)
     base_path = torch.cumsum(
-        torch.cat([torch.zeros(batch_size, 1, width, device=device), base_increments], dim=1),
+        torch.cat(
+            [torch.zeros(batch_size, 1, width, device=device), base_increments], dim=1
+        ),
         dim=1,
     )
 
@@ -63,9 +65,13 @@ def benchmark_sparse_vs_naive(
         path[b, : len(p)] = p
 
     actual_length = path.shape[1]
-    print(f"\nBenchmark: batch_size={batch_size}, base_length={path_length}, "
-          f"actual_length={actual_length}, width={width}, depth={depth}")
-    print(f"Repeat rate: {repeat_rate:.1%} (actual: {(actual_length - path_length) / actual_length:.1%})")
+    print(
+        f"\nBenchmark: batch_size={batch_size}, base_length={path_length}, "
+        f"actual_length={actual_length}, width={width}, depth={depth}"
+    )
+    print(
+        f"Repeat rate: {repeat_rate:.1%} (actual: {(actual_length - path_length) / actual_length:.1%})"
+    )
 
     # Warmup
     _ = signature(path, depth=depth)
@@ -88,10 +94,14 @@ def benchmark_sparse_vs_naive(
     avg_sparse = sum(times_sparse) / len(times_sparse)
 
     speedup = avg_naive / avg_sparse
-    print(f"Naive:    {avg_naive*1000:.3f} ms ± {torch.std(torch.tensor(times_naive))*1000:.3f} ms")
-    print(f"Sparse:   {avg_sparse*1000:.3f} ms ± {torch.std(torch.tensor(times_sparse))*1000:.3f} ms")
+    print(
+        f"Naive:    {avg_naive * 1000:.3f} ms ± {torch.std(torch.tensor(times_naive)) * 1000:.3f} ms"
+    )
+    print(
+        f"Sparse:   {avg_sparse * 1000:.3f} ms ± {torch.std(torch.tensor(times_sparse)) * 1000:.3f} ms"
+    )
     print(f"Speedup:  {speedup:.2f}x")
-    print(f"Time saved: {(1 - avg_sparse/avg_naive)*100:.1f}%")
+    print(f"Time saved: {(1 - avg_sparse / avg_naive) * 100:.1f}%")
 
 
 if __name__ == "__main__":

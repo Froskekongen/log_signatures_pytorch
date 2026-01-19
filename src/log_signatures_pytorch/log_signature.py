@@ -12,10 +12,15 @@ basis relates their coordinates.
 """
 
 from functools import lru_cache
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
 
 import torch
 from torch import Tensor
+
+if TYPE_CHECKING:
+    from typing import cast
+else:
+    cast = lambda t, x: x  # noqa: E731
 
 from .hall_bch import HallBCH, sparse_bch_supports_depth
 from .hall_projection import _project_to_hall_basis
@@ -24,9 +29,11 @@ from .lyndon_words import (
 )
 from .signature import (
     _infer_width_from_signature_dim,
+    _unflatten_signature,
     signature,
     windowed_signature,
 )
+from .sparse_signature import signature_sparse
 from .tensor_ops import batch_tensor_product
 
 
@@ -102,50 +109,14 @@ def _signature_to_logsignature_tensor(
     return log_sig
 
 
-def _unflatten_signature(sig: Tensor, width: int, depth: int) -> list[Tensor]:
-    """Reshape flattened signature blocks into per-depth tensors.
-
-    Converts a flattened signature tensor into a list of tensors, one for each
-    depth level, where each tensor has the appropriate shape for tensor algebra
-    operations.
-
-    Parameters
-    ----------
-    sig : Tensor
-        Flattened signature of shape ``(batch, sum(width**k for k=1..depth))``.
-    width : int
-        Path dimension (number of features).
-    depth : int
-        Truncation depth.
-
-    Returns
-    -------
-    list[Tensor]
-        List of length ``depth`` where entry ``k`` has shape
-        ``(batch, width, ..., width)`` with ``k+1`` trailing width axes.
-
-    Notes
-    -----
-    This is an internal function used to reshape signatures before converting
-    to log-signatures.
-    """
-    batch = sig.shape[0]
-    tensors: list[Tensor] = []
-    offset = 0
-    for current_depth in range(1, depth + 1):
-        size = width**current_depth
-        chunk = sig[:, offset : offset + size]
-        shape = (batch,) + (width,) * current_depth
-        tensors.append(chunk.reshape(*shape))
-        offset += size
-    return tensors
-
-
 def _batch_log_signature(
     path: Tensor,
     depth: int,
     stream: bool = False,
     mode: str = "words",
+    sparse: bool = False,
+    eps: float = 0.0,
+    lengths: Tensor | None = None,
 ) -> Tensor:
     """Compute log-signatures via signature→log pipeline for batched paths.
 
@@ -163,6 +134,24 @@ def _batch_log_signature(
         If True, computed log-signatures are returned for each step. Default is False.
     mode : str, optional
         Basis for the output coordinates: ``"words"`` (default) or ``"hall"``.
+    sparse : bool, optional
+        If True, use sparse signature computation for paths with repeated points.
+        Default is False.
+    eps : float, optional
+        Threshold for change detection when using sparse mode. Default is 0.0.
+    lengths : Tensor, optional
+        Tensor of shape ``(batch,)`` with valid lengths for padded batches when
+        using sparse mode.
+
+        **Best practice (recommended)**: pad by repeating the last valid point of
+        each path (signature-safe padding). In that case, the padded tail has
+        zero increments and does not change the signature/log-signature, so you
+        can usually leave ``lengths=None``.
+
+        If you pad with zeros/any other values, pass ``lengths`` so the sparse
+        path compression can ignore the padded tail.
+
+        Default is None.
 
     Returns
     -------
@@ -183,11 +172,22 @@ def _batch_log_signature(
         raise ValueError(f"Unsupported mode '{mode}'. Use 'hall' or 'words'.")
     batch_size, seq_len, n_features = path.shape
 
-    sig = signature(
-        path,
-        depth=depth,
-        stream=stream,
-    )
+    if sparse:
+        sig_result = signature_sparse(
+            path,
+            depth=depth,
+            stream=stream,
+            eps=eps,
+            lengths=lengths,
+        )
+        # signature_sparse returns Tensor when return_levels=False (default)
+        sig = cast(Tensor, sig_result)
+    else:
+        sig = signature(
+            path,
+            depth=depth,
+            stream=stream,
+        )
 
     projector = _project_to_hall_basis if mode == "hall" else _project_to_words_basis
 
@@ -286,6 +286,9 @@ def log_signature(
     stream: bool = False,
     method: str = "default",
     mode: str = "words",
+    sparse: bool = False,
+    eps: float = 0.0,
+    lengths: Tensor | None = None,
 ) -> Tensor:
     """Compute log-signatures for batched paths.
 
@@ -314,6 +317,14 @@ def log_signature(
     mode : str, optional
         Basis for the log-signature coordinates: "words" (default) or "hall".
         "words" is only available with ``method=\"default\"``.
+    sparse : bool, optional
+        If True, use sparse signature computation for paths with repeated points.
+        Only applies when ``method=\"default\"``. Default is False.
+    eps : float, optional
+        Threshold for change detection when using sparse mode. Default is 0.0.
+    lengths : Tensor, optional
+        Tensor of shape ``(batch,)`` with valid lengths for padded batches when
+        using sparse mode. Default is None.
 
     Returns
     -------
@@ -386,6 +397,9 @@ def log_signature(
                 depth=depth,
                 stream=stream,
                 mode=mode,
+                sparse=sparse,
+                eps=eps,
+                lengths=lengths,
             )
         else:
             log_sig = _batch_log_signature_bch(
@@ -399,6 +413,9 @@ def log_signature(
             depth=depth,
             stream=stream,
             mode=mode,
+            sparse=sparse,
+            eps=eps,
+            lengths=lengths,
         )
     else:
         raise ValueError(

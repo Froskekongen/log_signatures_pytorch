@@ -458,6 +458,107 @@ class TestLogSignature:
         with pytest.raises(ValueError):
             log_signature(path, depth=2)
 
+    @pytest.mark.parametrize("mode", ["hall", "words"])
+    def test_log_signature_sparse_vs_default_basic(self, mode: str):
+        """Test that sparse log signature matches default for paths without repeats."""
+        path = torch.tensor([[[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]]])
+        depth = 3
+
+        log_sig_sparse = log_signature(path, depth=depth, mode=mode, sparse=True)
+        log_sig_default = log_signature(path, depth=depth, mode=mode, sparse=False)
+
+        torch.testing.assert_close(
+            log_sig_sparse, log_sig_default, atol=1e-6, rtol=1e-6
+        )
+
+    @pytest.mark.parametrize("mode", ["hall", "words"])
+    def test_log_signature_sparse_with_repeats(self, mode: str):
+        """Test sparse log signature with repeated points."""
+        path = torch.tensor(
+            [[[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [1.0, 1.0], [1.0, 1.0], [2.0, 0.0]]]
+        )
+        depth = 3
+
+        log_sig_sparse = log_signature(path, depth=depth, mode=mode, sparse=True)
+        log_sig_default = log_signature(path, depth=depth, mode=mode, sparse=False)
+
+        torch.testing.assert_close(
+            log_sig_sparse, log_sig_default, atol=1e-6, rtol=1e-6
+        )
+
+    @pytest.mark.parametrize("mode", ["hall", "words"])
+    def test_log_signature_sparse_stream(self, mode: str):
+        """Test sparse log signature with stream=True."""
+        path = torch.tensor(
+            [[[0.0, 0.0], [0.0, 0.0], [1.0, 1.0], [1.0, 1.0], [2.0, 0.0]]]
+        )
+        depth = 2
+
+        log_sig_sparse = log_signature(
+            path, depth=depth, mode=mode, sparse=True, stream=True
+        )
+        log_sig_default = log_signature(
+            path, depth=depth, mode=mode, sparse=False, stream=True
+        )
+
+        torch.testing.assert_close(
+            log_sig_sparse, log_sig_default, atol=1e-6, rtol=1e-6
+        )
+        assert log_sig_sparse.shape == log_sig_default.shape
+
+    def test_log_signature_sparse_with_eps(self):
+        """Test sparse log signature with eps parameter."""
+        path = torch.tensor(
+            [[[0.0, 0.0], [0.001, 0.001], [0.002, 0.002], [1.0, 1.0], [2.0, 0.0]]]
+        )
+        depth = 2
+
+        # With eps=0.01, small changes should be treated as repeats
+        log_sig_eps = log_signature(path, depth=depth, sparse=True, eps=0.01)
+        # With eps=0.0, all changes are detected
+        log_sig_no_eps = log_signature(path, depth=depth, sparse=True, eps=0.0)
+
+        # They should be different when eps filters out small changes
+        # (unless the path happens to have no small changes)
+        assert log_sig_eps.shape == log_sig_no_eps.shape
+
+    def test_log_signature_sparse_with_lengths(self):
+        """Test sparse log signature with lengths parameter for padded batches."""
+        # Create a batch with different lengths
+        path = torch.tensor(
+            [
+                [[0.0, 0.0], [1.0, 1.0], [2.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+                [[0.0, 0.0], [1.0, 1.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+            ]
+        )
+        lengths = torch.tensor([3, 2])
+        depth = 2
+
+        log_sig = log_signature(
+            path, depth=depth, sparse=True, lengths=lengths, mode="words"
+        )
+
+        # Should compute correctly without errors
+        assert log_sig.shape[0] == 2
+        assert log_sig.shape[1] > 0
+
+    @pytest.mark.parametrize("mode", ["hall", "words"])
+    def test_log_signature_sparse_all_identical(self, mode: str):
+        """Test sparse log signature when all points are identical."""
+        path = torch.tensor([[[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]])
+        depth = 2
+
+        log_sig_sparse = log_signature(path, depth=depth, mode=mode, sparse=True)
+        log_sig_default = log_signature(path, depth=depth, mode=mode, sparse=False)
+
+        torch.testing.assert_close(
+            log_sig_sparse, log_sig_default, atol=1e-6, rtol=1e-6
+        )
+        # Should be all zeros (no path increments)
+        assert torch.allclose(
+            log_sig_sparse, torch.zeros_like(log_sig_sparse), atol=1e-6
+        )
+
 
 class TestMathematicalVerification:
     """Mathematical verification tests using known properties."""
