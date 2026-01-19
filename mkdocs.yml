@@ -29,6 +29,7 @@ nav:
     - hall_projection: api/hall_projection.md
     - hall_bch: api/hall_bch.md
     - bch_coefficients: api/bch_coefficients.md
+    - sparse_signature: api/sparse_signature.md
 
 plugins:
   - search
