@@ -114,7 +114,7 @@ def pad_paths_correctly(
     return padded, lengths
 
 
-def knot_indices_from_repeats(
+def _knot_indices_from_repeats(
     path: Tensor, eps: float = 0.0, lengths: Tensor | None = None
 ) -> Tensor:
     """Extract knot indices where the path changes (non-repeated points).
@@ -152,13 +152,13 @@ def knot_indices_from_repeats(
     Examples
     --------
     >>> import torch
-    >>> from log_signatures_pytorch.sparse_signature import knot_indices_from_repeats
+    >>> from log_signatures_pytorch.sparse_signature import _knot_indices_from_repeats
     >>>
     >>> # Path with repeats
     >>> path = torch.tensor([
     ...     [[0.0, 0.0], [0.0, 0.0], [1.0, 1.0], [1.0, 1.0], [2.0, 0.0]]
     ... ])  # (batch=1, T=5, D=2)
-    >>> knots = knot_indices_from_repeats(path)
+    >>> knots = _knot_indices_from_repeats(path)
     >>> knots
     tensor([[0, 2, 4]])
     """
@@ -233,7 +233,7 @@ def _sparse_increments_and_knots(
 ) -> tuple[Tensor, Tensor, Tensor]:
     """Extract sparse increments and knot indices.
 
-    Internal helper for sparse_increments and signature_sparse.
+    Internal helper for _sparse_increments and signature_sparse.
 
     Returns
     -------
@@ -242,7 +242,7 @@ def _sparse_increments_and_knots(
         - knot_counts: (batch,)
         - knots: (batch, M)
     """
-    knots = knot_indices_from_repeats(path, eps=eps, lengths=lengths)
+    knots = _knot_indices_from_repeats(path, eps=eps, lengths=lengths)
     batch_size, max_knots = knots.shape
 
     # Count valid knots per path (exclude -1 padding)
@@ -288,7 +288,7 @@ def _sparse_increments_and_knots(
     return padded_increments, knot_counts, knots
 
 
-def sparse_increments(
+def _sparse_increments(
     path: Tensor, eps: float = 0.0, lengths: Tensor | None = None
 ) -> tuple[Tensor, Tensor]:
     """Extract sparse (non-zero) increments between knots.
@@ -320,12 +320,12 @@ def sparse_increments(
     Examples
     --------
     >>> import torch
-    >>> from log_signatures_pytorch.sparse_signature import sparse_increments
+    >>> from log_signatures_pytorch.sparse_signature import _sparse_increments
     >>>
     >>> path = torch.tensor([
     ...     [[0.0, 0.0], [0.0, 0.0], [1.0, 1.0], [1.0, 1.0], [2.0, 0.0]]
     ... ])
-    >>> incs, counts = sparse_increments(path)
+    >>> incs, counts = _sparse_increments(path)
     >>> incs.shape
     torch.Size([1, 2, 2])
     >>> counts

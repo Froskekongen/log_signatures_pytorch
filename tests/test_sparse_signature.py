@@ -7,10 +7,10 @@ import torch
 
 from log_signatures_pytorch.signature import signature
 from log_signatures_pytorch.sparse_signature import (
-    knot_indices_from_repeats,
+    _knot_indices_from_repeats,
+    _sparse_increments,
     pad_paths_correctly,
     signature_sparse,
-    sparse_increments,
 )
 
 
@@ -19,7 +19,7 @@ def test_knot_indices_basic() -> None:
     path = torch.tensor(
         [[[0.0, 0.0], [0.0, 0.0], [1.0, 1.0], [1.0, 1.0], [2.0, 0.0]]]
     )  # (batch=1, T=5, D=2)
-    knots = knot_indices_from_repeats(path)
+    knots = _knot_indices_from_repeats(path)
     # Should include 0, 2 (first change), 4 (last point)
     assert knots.shape[0] == 1
     assert knots[0, 0] == 0
@@ -30,7 +30,7 @@ def test_knot_indices_basic() -> None:
 def test_knot_indices_all_identical() -> None:
     """Test knot extraction when all points are identical."""
     path = torch.tensor([[[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]])
-    knots = knot_indices_from_repeats(path)
+    knots = _knot_indices_from_repeats(path)
     # Should include 0 and last point (2)
     assert knots[0, 0] == 0
     assert knots[0, 1] == 2
@@ -42,7 +42,7 @@ def test_knot_indices_with_eps() -> None:
         [[[0.0, 0.0], [0.001, 0.001], [1.0, 1.0], [1.001, 1.001], [2.0, 0.0]]]
     )
     # With eps=0.01, small changes should be ignored
-    knots = knot_indices_from_repeats(path, eps=0.01)
+    knots = _knot_indices_from_repeats(path, eps=0.01)
     # Should skip the small changes
     assert knots[0, 0] == 0
     # Next knot should be at index where change > 0.01
@@ -53,7 +53,7 @@ def test_knot_indices_with_eps() -> None:
 def test_sparse_increments_basic() -> None:
     """Test sparse increment extraction."""
     path = torch.tensor([[[0.0, 0.0], [0.0, 0.0], [1.0, 1.0], [1.0, 1.0], [2.0, 0.0]]])
-    increments, counts = sparse_increments(path)
+    increments, counts = _sparse_increments(path)
     assert counts[0] == 3  # 3 knots means 2 segments
     assert increments.shape == (1, 2, 2)
     # First increment: [0,0] -> [1,1] = [1,1]
