@@ -337,6 +337,77 @@ def _sparse_increments(
     return increments, knot_counts
 
 
+def compress_path(
+    path: Tensor, eps: float = 0.0, lengths: Tensor | None = None
+) -> tuple[Tensor, Tensor, Tensor]:
+    """Compress a path by removing repeated points.
+
+    Extracts sparse increments (non-zero changes) and constructs a compressed
+    path that generates the same signature. This is useful for paths with many
+    repeated points, as the compressed path has fewer segments.
+
+    Parameters
+    ----------
+    path : Tensor
+        Tensor of shape ``(batch, T, D_aug)`` representing batched paths.
+    eps : float, optional
+        Threshold for change detection. If ``eps==0``, exact comparison.
+        Otherwise, a point is marked as "changed" if ``max(abs(delta)) > eps``.
+        Default is 0.0.
+    lengths : Tensor, optional
+        Tensor of shape ``(batch,)`` with valid lengths in a padded batch.
+
+        See :func:`pad_paths_correctly` for the recommended padding strategy.
+        If you pad with zeros/any other values, pass ``lengths`` to ignore the
+        padded tail.
+
+        Default is None.
+
+    Returns
+    -------
+    tuple[Tensor, Tensor, Tensor]
+        A tuple of:
+        - compressed_path: Tensor of shape ``(batch, M, D_aug)`` where M is the
+          number of knots. The compressed path that generates the same signature.
+        - knots: Tensor of shape ``(batch, max_knots)`` containing the indices
+          where changes occur in the original path.
+        - knot_counts: Tensor of shape ``(batch,)`` with the number of knots
+          per path.
+
+    Examples
+    --------
+    >>> import torch
+    >>> from log_signatures_pytorch.sparse_signature import compress_path
+    >>>
+    >>> # Path with repeats
+    >>> path = torch.tensor([
+    ...     [[0.0, 0.0], [0.0, 0.0], [1.0, 1.0], [1.0, 1.0], [2.0, 0.0]]
+    ... ])
+    >>> compressed, knots, counts = compress_path(path)
+    >>> compressed.shape
+    torch.Size([1, 3, 2])
+    >>> knots
+    tensor([[0, 2, 4]])
+    >>> counts
+    tensor([3])
+    """
+    increments, knot_counts, knots = _sparse_increments_and_knots(
+        path, eps=eps, lengths=lengths
+    )
+
+    # Construct a compressed path that generates these increments.
+    # We prepend a zero starting point.
+    batch_size, _, width = increments.shape
+    device = path.device
+    dtype = path.dtype
+
+    zeros = torch.zeros((batch_size, 1, width), device=device, dtype=dtype)
+    compressed_path_increments = torch.cat([zeros, increments], dim=1)
+    compressed_path = torch.cumsum(compressed_path_increments, dim=1)
+
+    return compressed_path, knots, knot_counts
+
+
 def _expand_stream_signature(
     compressed_sig: Tensor,
     knots: Tensor,
@@ -483,21 +554,9 @@ def signature_sparse(
     if depth < 1:
         raise ValueError("depth must be >= 1")
 
-    # Extract sparse increments (padded with zeros)
-    # increments: (batch, max_segments, width)
-    increments, knot_counts, knots = _sparse_increments_and_knots(
-        path, eps=eps, lengths=lengths
-    )
-
-    # Construct a compressed path that generates these increments.
-    # We prepend a zero starting point.
-    batch_size, _, width = increments.shape
-    device = path.device
-    dtype = path.dtype
-
-    zeros = torch.zeros((batch_size, 1, width), device=device, dtype=dtype)
-    compressed_path_increments = torch.cat([zeros, increments], dim=1)
-    compressed_path = torch.cumsum(compressed_path_increments, dim=1)
+    # Compress path by removing repeated points
+    compressed_path, knots, knot_counts = compress_path(path, eps=eps, lengths=lengths)
+    width = path.shape[2]
 
     # Compute signature using the vectorized implementation
     # If stream=True, we need the streaming signature of the compressed path

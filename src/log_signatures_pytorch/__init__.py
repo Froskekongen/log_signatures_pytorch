@@ -45,7 +45,7 @@ from .signature import (
     stream_to_window_signatures,
     windowed_signature,
 )
-from .sparse_signature import pad_paths_correctly, signature_sparse
+from .sparse_signature import compress_path, pad_paths_correctly, signature_sparse
 
 __all__ = [
     "signature",
@@ -61,6 +61,7 @@ __all__ = [
     "logsigdim_words",
     "logsigkeys_words",
     "lyndon_words",
+    "compress_path",
     "signature_sparse",
     "pad_paths_correctly",
 ]
